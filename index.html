@@ -600,7 +600,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;heigh
   <div class="pin-sub">Scoggins Band · Frisco ISD · 7th Grade<br>Enter your 6-digit sync PIN to keep your progress on every device.</div>
 
   <div class="pin-card">
-    <input id="pinInput" type="tel" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;" />
+    <input id="pinInput" type="tel" style="position:absolute;left:-9999px;" />
     <div class="pin-tabs">
       <button class="pin-tab active" id="tabEnter" onclick="switchPinTab('enter')">Enter PIN</button>
       <button class="pin-tab" id="tabCreate" onclick="switchPinTab('create')">Create PIN</button>
@@ -1373,8 +1373,9 @@ async function submitPIN() {
 }
 
 function hidePINScreen(pin) {
-  document.removeEventListener('keydown', handlePinKey);
-  document.getElementById('pinInput').blur();
+  const pinInput = document.getElementById('pinInput');
+  pinInput.removeEventListener('keydown', handlePinKey);
+  pinInput.blur();
   document.getElementById('pinScreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'block';
   updatePinBadge(pin);
@@ -1389,8 +1390,9 @@ function showPINScreen() {
   document.getElementById('pinMsg').textContent = '';
   document.getElementById('pinEnterBtn').disabled = true;
   document.getElementById('pinEnterBtn').textContent = pinMode === 'create' ? 'Create & Connect' : 'Connect';
-  document.addEventListener('keydown', handlePinKey);
-  document.getElementById('pinInput').focus();
+  const pinInput = document.getElementById('pinInput');
+  pinInput.addEventListener('keydown', handlePinKey);
+  pinInput.focus();
   document.getElementById('pinScreen').style.display = 'flex';
   document.getElementById('appShell').style.display = 'none';
 }
