@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Percussion Hub">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
 <title>Azlan's Percussion Hub — Scoggins Band</title>
 
 <!-- ═══════ PIN SYNC ENGINE ═══════ -->
@@ -23,13 +24,77 @@
   // Paste it below after signing up (takes 60 seconds).
   const JSONBIN_KEY = '$2a$10$REPLACE_WITH_YOUR_JSONBIN_MASTER_KEY';
   const BASE = 'https://api.jsonbin.io/v3';
+  const REGISTRY_BIN_NAME = 'azlan-registry';
 
   let activePIN  = null;   // 6-digit string
   let activeBinId = null;  // JSONbin bin ID linked to this PIN
   let saveTimer  = null;
 
-  // ── PIN → BIN ID mapping stored in localStorage ──
-  // When a PIN is first used we create a bin and cache its ID locally.
+  // ── PIN → BIN ID mapping via registry bin ──
+  // Registry bin stores {pin: binId} mappings for consistent sync across devices
+  async function getRegistry(){
+    try {
+      // Try to find registry bin by name — list bins and find by name
+      const listRes = await fetch(BASE + '/b', {
+        headers: { 'X-Master-Key': JSONBIN_KEY }
+      });
+      if (!listRes.ok) throw new Error('List failed');
+      const bins = await listRes.json();
+      const regBin = bins.find(b => b.name === REGISTRY_BIN_NAME);
+      if (regBin) {
+        const readRes = await fetch(BASE + '/b/' + regBin.id + '/latest', {
+          headers: { 'X-Master-Key': JSONBIN_KEY }
+        });
+        if (readRes.ok) {
+          const json = await readRes.json();
+          return json.record || {};
+        }
+      }
+      // Create registry if not exists
+      const createRes = await fetch(BASE + '/b', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY,
+          'X-Bin-Name': REGISTRY_BIN_NAME,
+          'X-Bin-Private': 'true'
+        },
+        body: JSON.stringify({})
+      });
+      const json = await createRes.json();
+      return {};
+    } catch(e) {
+      console.warn('Registry error:', e);
+      return {};
+    }
+  }
+
+  async function updateRegistry(pin, binId){
+    try {
+      const reg = await getRegistry();
+      reg[pin] = binId;
+      // Find registry bin ID
+      const listRes = await fetch(BASE + '/b', {
+        headers: { 'X-Master-Key': JSONBIN_KEY }
+      });
+      const bins = await listRes.json();
+      const regBin = bins.find(b => b.name === REGISTRY_BIN_NAME);
+      if (regBin) {
+        await fetch(BASE + '/b/' + regBin.id, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': JSONBIN_KEY
+          },
+          body: JSON.stringify(reg)
+        });
+      }
+    } catch(e) {
+      console.warn('Update registry error:', e);
+    }
+  }
+
+  // ── PIN → BIN ID mapping stored in localStorage (cache) ──
   function pinKey(pin){ return 'azlan_bin_' + pin; }
   function getCachedBin(pin){ return localStorage.getItem(pinKey(pin)); }
   function cacheBin(pin, binId){ localStorage.setItem(pinKey(pin), binId); }
@@ -78,13 +143,19 @@
     activePIN = pin;
     setSyncStatus('syncing');
 
-    // Check if we already have a bin ID cached for this PIN
-    let binId = getCachedBin(pin);
+    // Check registry for existing binId
+    let binId = null;
+    const reg = await getRegistry();
+    if (reg[pin]) {
+      binId = reg[pin];
+      cacheBin(pin, binId); // cache locally
+    }
 
     if (isNew || !binId) {
       // Create a brand-new bin
       binId = await createBin(pin, {});
       if (!binId) { setSyncStatus('offline'); return false; }
+      await updateRegistry(pin, binId);
       cacheBin(pin, binId);
       activeBinId = binId;
       setSyncStatus('synced');
@@ -97,7 +168,11 @@
         // Bin might not exist on server anymore (e.g. free tier cleanup)
         // Re-create it
         binId = await createBin(pin, {});
-        if (binId) { cacheBin(pin, binId); activeBinId = binId; }
+        if (binId) { 
+          await updateRegistry(pin, binId);
+          cacheBin(pin, binId); 
+          activeBinId = binId; 
+        }
         setSyncStatus('synced');
         return true;
       }
@@ -1153,7 +1228,7 @@ function checkSR(){const correct=srTapped.filter(Boolean).length,total=srPattern
 // ═══════ TEACHER NOTES ═══════
 let teacherNotes=[];
 function addNote(){const txt=document.getElementById('newNoteText').value.trim();if(!txt)return;const now=new Date();teacherNotes.unshift({text:txt,date:now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),id:Date.now()});document.getElementById('newNoteText').value='';renderNotes();saveAll();showToast('Note saved! 📝');}
-function renderNotes(){const list=document.getElementById('notesList');if(!teacherNotes.length){list.innerHTML='<div style="font-size:.74rem;color:var(--text2);padding:.9rem 0;text-align:center">No notes yet. Write down what your teacher tells you!</div>';return;}list.innerHTML=teacherNotes.map(n=>`<li class="note-item"><span class="note-date-badge">${n.date}</span><span class="note-text">${n.text}</span><button class="note-delete" onclick="deleteNote(${n.id})">✕</button></li>`).join('');}
+function renderNotes(){const list=document.getElementById('notesList');list.innerHTML='';if(!teacherNotes.length){list.innerHTML='<div style="font-size:.74rem;color:var(--text2);padding:.9rem 0;text-align:center">No notes yet. Write down what your teacher tells you!</div>';return;}teacherNotes.forEach(n=>{const li=document.createElement('li');li.className='note-item';const dateBadge=document.createElement('span');dateBadge.className='note-date-badge';dateBadge.textContent=n.date;const noteText=document.createElement('span');noteText.className='note-text';noteText.textContent=n.text;const delBtn=document.createElement('button');delBtn.className='note-delete';delBtn.textContent='✕';delBtn.onclick=()=>deleteNote(n.id);li.append(dateBadge,noteText,delBtn);list.appendChild(li);});}
 function deleteNote(id){teacherNotes=teacherNotes.filter(n=>n.id!==id);renderNotes();saveAll();}
 function saveToNotes(){const txt=document.getElementById('analysisText').textContent;if(!txt)return;teacherNotes.unshift({text:'AI: '+txt.slice(0,200)+'...',date:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),id:Date.now()});renderNotes();saveAll();showToast('Saved to Teacher Notes!');}
 
@@ -1224,6 +1299,16 @@ window.__remoteLoad = (data) => { applyPayload(data); setSyncStatus('synced'); }
 let pinEntry = '';
 let pinMode = 'enter'; // 'enter' | 'create'
 
+function handlePinKey(e) {
+  if (e.key >= '0' && e.key <= '9') {
+    pinKey(e.key);
+  } else if (e.key === 'Backspace') {
+    pinDel();
+  } else if (e.key === 'Enter' && pinEntry.length === 6) {
+    submitPIN();
+  }
+}
+
 function switchPinTab(mode) {
   pinMode = mode;
   pinEntry = '';
@@ -1287,6 +1372,7 @@ async function submitPIN() {
 }
 
 function hidePINScreen(pin) {
+  document.removeEventListener('keydown', handlePinKey);
   document.getElementById('pinScreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'block';
   updatePinBadge(pin);
@@ -1300,7 +1386,8 @@ function showPINScreen() {
   updatePinDisplay();
   document.getElementById('pinMsg').textContent = '';
   document.getElementById('pinEnterBtn').disabled = true;
-  document.getElementById('pinEnterBtn').textContent = 'Connect';
+  document.getElementById('pinEnterBtn').textContent = pinMode === 'create' ? 'Create & Connect' : 'Connect';
+  document.addEventListener('keydown', handlePinKey);
   document.getElementById('pinScreen').style.display = 'flex';
   document.getElementById('appShell').style.display = 'none';
 }
