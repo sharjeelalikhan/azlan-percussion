@@ -1,0 +1,19 @@
+{
+  "name": "Azlan's Percussion Hub",
+  "short_name": "Percussion Hub",
+  "description": "Scoggins Band percussion practice app for Azlan — Frisco ISD 7th Grade",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#0a0f1e",
+  "theme_color": "#f5a623",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "screenshots": [
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "form_factor": "narrow" }
+  ],
+  "categories": ["education", "music"],
+  "lang": "en-US"
+}

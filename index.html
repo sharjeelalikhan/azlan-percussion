@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#f5a623">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Percussion Hub">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Azlan's Percussion Hub — Scoggins Band</title>
+
+<!-- ═══════ PIN SYNC ENGINE ═══════ -->
+<!-- No account needed — just a 6-digit PIN shared across devices -->
+<!-- Uses JSONbin.io free tier: 10,000 requests/month, plenty for one student -->
+<script>
+(function(){
+  // ── JSONbin config ──
+  // A single master API key for creating/reading bins.
+  // Each PIN gets its own private bin — only someone who knows the PIN can access it.
+  // JSONBIN_KEY is a free JSONbin.io X-Master-Key. Get yours free at jsonbin.io
+  // Paste it below after signing up (takes 60 seconds).
+  const JSONBIN_KEY = '$2a$10$REPLACE_WITH_YOUR_JSONBIN_MASTER_KEY';
+  const BASE = 'https://api.jsonbin.io/v3';
+
+  let activePIN  = null;   // 6-digit string
+  let activeBinId = null;  // JSONbin bin ID linked to this PIN
+  let saveTimer  = null;
+
+  // ── PIN → BIN ID mapping stored in localStorage ──
+  // When a PIN is first used we create a bin and cache its ID locally.
+  function pinKey(pin){ return 'azlan_bin_' + pin; }
+  function getCachedBin(pin){ return localStorage.getItem(pinKey(pin)); }
+  function cacheBin(pin, binId){ localStorage.setItem(pinKey(pin), binId); }
+
+  // ── CREATE a new bin for a new PIN ──
+  async function createBin(pin, payload){
+    const res = await fetch(BASE + '/b', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': JSONBIN_KEY,
+        'X-Bin-Name': 'azlan-percussion-' + pin,
+        'X-Bin-Private': 'true'
+      },
+      body: JSON.stringify({ pin, data: payload, createdAt: new Date().toISOString() })
+    });
+    const json = await res.json();
+    return json.metadata?.id || null;
+  }
+
+  // ── READ from bin ──
+  async function readBin(binId){
+    const res = await fetch(BASE + '/b/' + binId + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.record?.data || null;
+  }
+
+  // ── WRITE to bin ──
+  async function writeBin(binId, payload){
+    const res = await fetch(BASE + '/b/' + binId, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': JSONBIN_KEY
+      },
+      body: JSON.stringify({ data: payload, updatedAt: new Date().toISOString() })
+    });
+    return res.ok;
+  }
+
+  // ── PUBLIC: Enter PIN ──
+  window.__pinConnect = async function(pin, isNew){
+    activePIN = pin;
+    setSyncStatus('syncing');
+
+    // Check if we already have a bin ID cached for this PIN
+    let binId = getCachedBin(pin);
+
+    if (isNew || !binId) {
+      // Create a brand-new bin
+      binId = await createBin(pin, {});
+      if (!binId) { setSyncStatus('offline'); return false; }
+      cacheBin(pin, binId);
+      activeBinId = binId;
+      setSyncStatus('synced');
+      return true;
+    } else {
+      // Existing PIN — load data
+      activeBinId = binId;
+      const data = await readBin(binId);
+      if (data === null) {
+        // Bin might not exist on server anymore (e.g. free tier cleanup)
+        // Re-create it
+        binId = await createBin(pin, {});
+        if (binId) { cacheBin(pin, binId); activeBinId = binId; }
+        setSyncStatus('synced');
+        return true;
+      }
+      window.__remoteLoad && window.__remoteLoad(data);
+      setSyncStatus('synced');
+      return true;
+    }
+  };
+
+  // ── PUBLIC: Save ──
+  window.__cloudSave = async function(payload){
+    if (!activeBinId) return;
+    setSyncStatus('syncing');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const ok = await writeBin(activeBinId, payload);
+      setSyncStatus(ok ? 'synced' : 'offline');
+    }, 800); // debounce 800ms
+  };
+
+  // ── PUBLIC: Force load ──
+  window.__cloudLoad = async function(){
+    if (!activeBinId) return null;
+    return await readBin(activeBinId);
+  };
+
+  // ── PUBLIC: Disconnect PIN ──
+  window.__pinDisconnect = function(){
+    activePIN = null;
+    activeBinId = null;
+    setSyncStatus('offline');
+  };
+
+  window.__getActivePIN = () => activePIN;
+})();
+</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600&display=swap');
+:root{--bg:#0a0f1e;--surface:#111827;--card:#1a2235;--card2:#1e2a40;--border:#2a3a55;--accent:#f5a623;--accent2:#4fc3f7;--green:#4ade80;--red:#f87171;--purple:#c084fc;--text:#e2eaf8;--text2:#8fa3c0;--text3:#4a6080;--r:10px;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html{scroll-behavior:smooth;width:100%;overflow-x:hidden;}
+body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-height:100vh;overflow-x:hidden;width:100%;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(79,195,247,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(79,195,247,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+
+/* ── LOGIN SCREEN ── */
+#pinScreen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;text-align:center;}
+.pin-logo{font-size:3.5rem;margin-bottom:.75rem;filter:drop-shadow(0 0 20px rgba(245,166,35,.4));}
+.pin-title{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(1.4rem,5vw,2rem);background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.3rem;}
+.pin-sub{font-size:.78rem;color:var(--text2);line-height:1.65;margin-bottom:1.25rem;max-width:320px;}
+.pin-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.4rem;width:100%;max-width:330px;}
+.pin-tabs{display:flex;gap:.4rem;margin-bottom:1.1rem;}
+.pin-tab{flex:1;padding:.48rem;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;font-size:.72rem;font-weight:500;cursor:pointer;transition:all .18s;}
+.pin-tab.active{background:var(--accent);color:#0a0f1e;border-color:var(--accent);font-weight:600;}
+.pin-display{display:flex;gap:.45rem;justify-content:center;margin-bottom:.9rem;}
+.pin-dot{width:40px;height:50px;background:var(--surface);border:2px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:1.4rem;color:var(--accent);transition:all .15s;}
+.pin-dot.filled{border-color:var(--accent);background:rgba(245,166,35,.1);}
+.pin-dot.active-dot{border-color:var(--accent2);box-shadow:0 0 8px rgba(79,195,247,.3);}
+.pin-keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem;margin-bottom:.7rem;}
+.pin-key{height:50px;background:var(--card2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Syne',sans-serif;font-weight:700;font-size:1.2rem;cursor:pointer;transition:all .12s;display:flex;align-items:center;justify-content:center;}
+.pin-key:hover{background:var(--border);border-color:var(--accent2);}
+.pin-key:active{transform:scale(.93);background:rgba(245,166,35,.15);}
+.pin-key.del{font-size:.82rem;color:var(--text2);}
+.pin-key.zero{grid-column:2;}
+.pin-enter{width:100%;height:46px;background:var(--accent);border:none;border-radius:10px;color:#0a0f1e;font-family:'Syne',sans-serif;font-weight:700;font-size:.88rem;cursor:pointer;transition:all .18s;margin-top:.2rem;}
+.pin-enter:hover{background:#ffb84d;box-shadow:0 0 14px rgba(245,166,35,.4);}
+.pin-enter:disabled{background:var(--border);color:var(--text3);cursor:not-allowed;box-shadow:none;}
+.pin-msg{font-size:.68rem;color:var(--text2);margin-top:.7rem;min-height:1.1rem;}
+.pin-msg.error{color:var(--red);}
+.pin-msg.success{color:var(--green);}
+.pin-skip{margin-top:.9rem;font-size:.65rem;color:var(--text3);cursor:pointer;text-decoration:underline;}
+.pin-skip:hover{color:var(--text2);}
+.pin-spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(10,15,30,.3);border-top-color:#0a0f1e;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:.3rem;}
+
+/* ── SYNC STATUS ── */
+.sync-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);display:inline-block;margin-right:.3rem;transition:background .3s;}
+.sync-dot.synced{background:var(--green);}
+.sync-dot.syncing{background:var(--accent);animation:pulse .8s infinite;}
+.sync-dot.offline{background:var(--red);}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.sync-label{font-size:.55rem;color:var(--text2);letter-spacing:.08em;}
+
+/* ── USER AVATAR ── */
+.user-btn{display:flex;align-items:center;gap:.4rem;cursor:pointer;padding:.2rem .5rem;border-radius:6px;transition:background .2s;}
+.user-btn:hover{background:var(--card2);}
+.user-avatar{width:26px;height:26px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);}
+.user-name{font-size:.62rem;color:var(--text2);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── USER MENU ── */
+.user-menu{position:absolute;top:52px;right:.75rem;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.5rem;z-index:200;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,.4);display:none;}
+.user-menu.show{display:block;}
+.menu-item{padding:.6rem .85rem;border-radius:6px;font-size:.78rem;cursor:pointer;transition:background .15s;color:var(--text);}
+.menu-item:hover{background:var(--card2);}
+.menu-divider{height:1px;background:var(--border);margin:.3rem 0;}
+
+/* HEADER */
+.header{position:sticky;top:0;z-index:100;background:rgba(10,15,30,.93);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:.75rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem;}
+.logo{display:flex;align-items:center;gap:.55rem;min-width:0;}
+.logo-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#e08000);display:flex;align-items:center;justify-content:center;font-size:.95rem;box-shadow:0 0 12px rgba(245,166,35,.4);flex-shrink:0;}
+.logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:.88rem;line-height:1.1;white-space:nowrap;}
+.logo-sub{font-size:.52rem;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;}
+.header-right{display:flex;align-items:center;gap:.5rem;flex-shrink:0;position:relative;}
+.hchip{font-size:.54rem;letter-spacing:.09em;text-transform:uppercase;padding:.18rem .5rem;border-radius:20px;border:1px solid;font-weight:500;}
+.hchip-g{color:var(--green);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.07);}
+.hchip-o{color:var(--accent);border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.07);}
+
+/* NAV */
+.nav-tabs{display:flex;overflow-x:auto;gap:.28rem;padding:.55rem .85rem;background:var(--surface);border-bottom:1px solid var(--border);scrollbar-width:none;position:sticky;top:50px;z-index:90;-webkit-overflow-scrolling:touch;white-space:nowrap;}
+.nav-tabs::-webkit-scrollbar{display:none;}
+.tab-btn{flex-shrink:0;font-family:'Outfit',sans-serif;font-size:.65rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:.38rem .8rem;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;transition:all .16s;white-space:nowrap;}
+.tab-btn:hover{border-color:var(--accent2);color:var(--text);}
+.tab-btn.active{background:var(--accent);color:#0a0f1e;border-color:var(--accent);font-weight:600;}
+
+/* PAGES */
+.page{display:none;padding:1rem;max-width:900px;margin:0 auto;width:100%;}
+.page.active{display:block;}
+.fade-in{animation:fadeIn .28s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* CARDS */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:1rem;margin-bottom:.8rem;position:relative;overflow:hidden;}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent2),transparent);opacity:.3;}
+.card-title{font-family:'Syne',sans-serif;font-weight:700;font-size:.92rem;color:var(--accent);margin-bottom:.6rem;display:flex;align-items:center;gap:.4rem;}
+.btn{font-family:'Outfit',sans-serif;font-size:.76rem;font-weight:600;letter-spacing:.04em;padding:.56rem 1.2rem;border-radius:8px;border:1px solid;cursor:pointer;transition:all .16s;display:inline-flex;align-items:center;gap:.32rem;}
+.btn-primary{background:var(--accent);color:#0a0f1e;border-color:var(--accent);}
+.btn-primary:hover{background:#ffb84d;box-shadow:0 0 16px rgba(245,166,35,.35);}
+.btn-secondary{background:transparent;color:var(--accent2);border-color:rgba(79,195,247,.4);}
+.btn-secondary:hover{background:rgba(79,195,247,.1);}
+.btn-green{background:transparent;color:var(--green);border-color:rgba(74,222,128,.4);}
+.btn-green:hover{background:rgba(74,222,128,.1);}
+.btn-red{background:transparent;color:var(--red);border-color:rgba(248,113,113,.35);}
+.btn-red:hover{background:rgba(248,113,113,.08);}
+.btn-sm{font-size:.65rem;padding:.34rem .8rem;}
+.btn-row{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.6rem;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;}
+.three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem;}
+/* ── RESPONSIVE BREAKPOINTS ── */
+/* Large desktop */
+@media(min-width:901px){
+  .page{padding:1.25rem 2rem;}
+}
+/* Tablet */
+@media(max-width:768px){
+  .page{padding:.85rem;}
+  .card{padding:.85rem;}
+  .marimba-frame{height:85px;}
+  .nav-tabs{padding:.45rem .65rem;}
+  .tab-btn{font-size:.6rem;padding:.35rem .65rem;}
+  .header{padding:.65rem .85rem;}
+  .logo-text{font-size:.82rem;}
+  .logo-sub{display:none;}
+}
+/* Mobile */
+@media(max-width:480px){
+  .two-col{grid-template-columns:1fr}
+  .three-col{grid-template-columns:1fr 1fr}
+  .page{padding:.7rem;}
+  .card{padding:.75rem;margin-bottom:.65rem;}
+  .card-title{font-size:.85rem;}
+  .tab-btn{font-size:.58rem;padding:.32rem .55rem;}
+  .btn{font-size:.72rem;padding:.5rem 1rem;}
+  .metro-bpm{font-size:2.8rem;}
+  .timer-time{font-size:2.2rem;}
+  .streak-num{font-size:2.2rem;}
+  .stat-num{font-size:1.5rem;}
+  .marimba-frame{height:75px;}
+  .bpm-btn{width:34px;height:34px;font-size:.82rem;}
+  .pin-card{padding:1.1rem;}
+  .pin-dot{width:36px;height:46px;}
+  .hchip{display:none;}
+  .welcome-hero{padding:1.1rem;}
+}
+/* Very small phones */
+@media(max-width:360px){
+  .page{padding:.55rem;}
+  .tab-btn{font-size:.54rem;padding:.28rem .45rem;}
+  .pin-keypad{gap:.35rem;}
+  .pin-key{height:44px;font-size:1.1rem;}
+  .marimba-frame{height:65px;}
+}
+.sec-h{font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;color:var(--text);margin:1rem 0 .6rem;display:flex;align-items:center;gap:.4rem;}
+.sec-h::after{content:'';flex:1;height:1px;background:var(--border);}
+.stat-card{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.8rem;text-align:center;}
+.stat-num{font-family:'Syne',sans-serif;font-weight:800;font-size:1.75rem;color:var(--accent);}
+.stat-label{font-size:.6rem;color:var(--text2);margin-top:.12rem;text-transform:uppercase;letter-spacing:.08em;}
+.cfield{margin-bottom:.55rem;}
+.cfield label{font-size:.58rem;letter-spacing:.11em;text-transform:uppercase;color:var(--text2);display:block;margin-bottom:.28rem;}
+.cfield input,.cfield select,.cfield textarea{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Outfit',sans-serif;font-size:.78rem;padding:.48rem .68rem;outline:none;transition:border-color .18s;}
+.cfield input:focus,.cfield select:focus,.cfield textarea:focus{border-color:var(--accent2);}
+.cfield select option{background:var(--surface);}
+.cfield textarea{resize:vertical;min-height:52px;line-height:1.5;}
+.customize-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.7rem;}
+@media(max-width:500px){.customize-grid{grid-template-columns:1fr;}}
+.full-width{grid-column:1/-1;}
+.tag{font-size:.54rem;padding:.12rem .48rem;border-radius:12px;border:1px solid;display:inline-block;}
+.tag-concert{color:var(--accent);border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.08);}
+.tag-sym{color:var(--green);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.07);}
+.tag-wind{color:var(--accent2);border-color:rgba(79,195,247,.3);background:rgba(79,195,247,.07);}
+.tag-uil{color:var(--purple);border-color:rgba(192,132,252,.3);background:rgba(192,132,252,.07);}
+.tip-box{background:rgba(245,166,35,.06);border-left:3px solid var(--accent);padding:.6rem .85rem;border-radius:0 6px 6px 0;margin:.45rem 0;font-size:.74rem;line-height:1.75;color:var(--text);}
+.tip-box b{color:var(--accent);}
+.tip-blue{background:rgba(79,195,247,.05);border-left-color:var(--accent2);}
+.mono-pre{font-family:'Courier New',monospace;font-size:.6rem;color:var(--green);background:var(--surface);padding:.58rem .82rem;border-radius:6px;margin:.42rem 0;white-space:pre;line-height:1.6;overflow-x:auto;}
+.toast{position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%) translateY(80px);background:var(--card);border:1px solid var(--green);border-radius:8px;padding:.56rem 1.1rem;font-size:.74rem;color:var(--green);transition:transform .28s;z-index:9999;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast.error{border-color:var(--red);color:var(--red);}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--surface);}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+
+/* METRONOME */
+.metro-display{background:var(--surface);border-radius:12px;padding:1.3rem;text-align:center;margin-bottom:.8rem;border:1px solid var(--border);}
+.metro-bpm{font-family:'Syne',sans-serif;font-weight:800;font-size:3.2rem;color:var(--accent);line-height:1;}
+.metro-beat-row{display:flex;justify-content:center;gap:.55rem;margin:.85rem 0;}
+.metro-beat{width:16px;height:16px;border-radius:50%;background:var(--border);transition:background .05s,box-shadow .05s;}
+.metro-beat.active{background:var(--accent);box-shadow:0 0 9px var(--accent);}
+.metro-controls{display:flex;gap:.45rem;justify-content:center;flex-wrap:wrap;margin:.7rem 0;}
+.metro-btn{font-family:'Outfit',sans-serif;font-size:.76rem;font-weight:600;padding:.5rem 1rem;border-radius:8px;border:1px solid;cursor:pointer;transition:all .16s;background:transparent;}
+.metro-btn-start{color:var(--green);border-color:rgba(74,222,128,.5);}
+.metro-btn-start:hover{background:var(--green);color:#0a0f1e;}
+.metro-btn-stop{color:var(--red);border-color:rgba(248,113,113,.4);}
+.metro-btn-stop:hover{background:var(--red);color:#0a0f1e;}
+.metro-btn-tap{color:var(--accent2);border-color:rgba(79,195,247,.4);}
+.metro-btn-tap:hover{background:var(--accent2);color:#0a0f1e;}
+.metro-adj{display:flex;gap:.35rem;justify-content:center;flex-wrap:wrap;margin-bottom:.7rem;}
+.bpm-btn{width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:.9rem;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;transition:all .16s;}
+.bpm-btn:hover{border-color:var(--accent);color:var(--accent);}
+input[type=range]{-webkit-appearance:none;width:100%;height:2px;background:var(--border);outline:none;border-radius:1px;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;background:var(--accent);border-radius:50%;cursor:pointer;}
+.metro-preset-row{display:flex;gap:.35rem;flex-wrap:wrap;justify-content:center;}
+.preset-btn{font-size:.62rem;padding:.28rem .65rem;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;transition:all .16s;font-family:'Outfit',sans-serif;}
+.preset-btn:hover{border-color:var(--accent);color:var(--accent);}
+.sig-row{display:flex;gap:.45rem;justify-content:center;margin:.45rem 0;}
+.sig-btn{font-size:.68rem;padding:.28rem .65rem;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;transition:all .16s;font-family:'Outfit',sans-serif;}
+.sig-btn.active{border-color:var(--accent2);color:var(--accent2);background:rgba(79,195,247,.08);}
+
+/* SNARE */
+.sticking-display{font-family:'Courier New',monospace;font-size:.88rem;color:var(--accent);letter-spacing:.15em;text-align:center;padding:.7rem;background:var(--surface);border-radius:8px;border:1px solid var(--border);margin:.45rem 0;}
+.hit-counter{font-family:'Syne',sans-serif;font-weight:800;font-size:1.8rem;color:var(--accent2);text-align:center;}
+.snare-pattern-row{display:flex;gap:.35rem;flex-wrap:wrap;justify-content:center;margin-bottom:.5rem;}
+.spat-btn{font-size:.62rem;padding:.28rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;transition:all .16s;font-family:'Outfit',sans-serif;}
+.spat-btn.active{border-color:var(--accent2);color:var(--accent2);background:rgba(79,195,247,.08);}
+
+/* TIMER */
+.timer-display{background:var(--surface);border-radius:12px;padding:1.3rem;text-align:center;border:1px solid var(--border);margin-bottom:.7rem;}
+.timer-time{font-family:'Syne',sans-serif;font-weight:800;font-size:2.8rem;color:var(--accent);letter-spacing:.05em;}
+.timer-phase{font-size:.68rem;color:var(--accent2);letter-spacing:.13em;text-transform:uppercase;margin-top:.2rem;}
+.timer-progress-ring{margin:.7rem auto;position:relative;width:110px;height:110px;}
+.timer-progress-ring svg{transform:rotate(-90deg);}
+.ring-bg{fill:none;stroke:var(--border);stroke-width:7;}
+.ring-fill{fill:none;stroke:var(--accent);stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset .9s linear;stroke-dasharray:314;stroke-dashoffset:314;}
+.timer-inner{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;}
+.timer-inner-time{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--accent);}
+.timer-inner-label{font-size:.5rem;color:var(--text2);}
+.phase-list{list-style:none;}
+.phase-item{display:flex;gap:.65rem;align-items:center;padding:.55rem .75rem;border-radius:8px;border:1px solid var(--border);background:var(--card2);margin-bottom:.35rem;}
+.phase-item.active-phase{border-color:var(--accent);background:rgba(245,166,35,.07);}
+.phase-item.done-phase{border-color:var(--green);background:rgba(74,222,128,.05);}
+.phase-dot{width:9px;height:9px;border-radius:50%;background:var(--border);flex-shrink:0;}
+.phase-item.active-phase .phase-dot{background:var(--accent);box-shadow:0 0 5px var(--accent);}
+.phase-item.done-phase .phase-dot{background:var(--green);}
+.phase-name{font-weight:500;font-size:.78rem;}
+.phase-dur{font-size:.62rem;color:var(--text2);margin-left:auto;}
+
+/* SIGHT READING */
+.sr-display{background:var(--surface);border-radius:10px;padding:1.1rem;text-align:center;border:1px solid var(--border);margin-bottom:.7rem;min-height:110px;display:flex;align-items:center;justify-content:center;}
+.rhythm-pattern{font-family:'Courier New',monospace;font-size:1.05rem;color:var(--text);letter-spacing:.09em;line-height:2.2;}
+.note-sym{font-size:1.35rem;cursor:pointer;transition:color .12s;}
+.note-sym.tapped{color:var(--accent);}
+.sr-diff-row{display:flex;gap:.38rem;flex-wrap:wrap;justify-content:center;margin:.45rem 0;}
+.diff-btn{font-size:.62rem;padding:.28rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--card2);color:var(--text2);cursor:pointer;transition:all .16s;font-family:'Outfit',sans-serif;}
+.diff-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(245,166,35,.08);}
+.sr-feedback{padding:.7rem;border-radius:8px;text-align:center;font-size:.78rem;font-weight:500;margin-top:.45rem;display:none;}
+.sr-correct{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:var(--green);}
+.sr-wrong{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:var(--red);}
+.sr-score{font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:var(--accent);}
+
+/* NOTES */
+.notes-list{list-style:none;}
+.note-item{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.8rem;margin-bottom:.45rem;display:flex;gap:.65rem;align-items:flex-start;}
+.note-date-badge{font-size:.52rem;color:var(--accent2);background:rgba(79,195,247,.1);border:1px solid rgba(79,195,247,.2);padding:.13rem .42rem;border-radius:4px;white-space:nowrap;flex-shrink:0;}
+.note-text{font-size:.78rem;color:var(--text);line-height:1.6;flex:1;}
+.note-delete{background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:.8rem;padding:.08rem .28rem;transition:color .18s;flex-shrink:0;}
+.note-delete:hover{color:var(--red);}
+.add-note-area{display:flex;gap:.45rem;margin-bottom:.7rem;}
+.add-note-area textarea{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Outfit',sans-serif;font-size:.78rem;padding:.55rem .75rem;outline:none;resize:none;height:68px;line-height:1.5;transition:border-color .18s;}
+.add-note-area textarea:focus{border-color:var(--accent2);}
+
+/* CHECKLIST */
+.check-item{display:flex;gap:.65rem;align-items:center;padding:.65rem .8rem;border-radius:8px;border:1px solid var(--border);background:var(--card2);margin-bottom:.35rem;cursor:pointer;transition:all .18s;}
+.check-item.checked{border-color:var(--green);background:rgba(74,222,128,.05);}
+.check-box{width:20px;height:20px;border-radius:5px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .18s;font-size:.75rem;}
+.check-item.checked .check-box{background:var(--green);border-color:var(--green);color:#0a0f1e;}
+.check-label{font-size:.78rem;color:var(--text);flex:1;}
+.check-item.checked .check-label{color:var(--text2);text-decoration:line-through;}
+.check-category{font-size:.56rem;letter-spacing:.11em;text-transform:uppercase;color:var(--text3);margin:.65rem 0 .28rem;padding-left:.18rem;}
+.checklist-status{text-align:center;padding:.8rem;border-radius:8px;font-size:.84rem;font-weight:600;margin-top:.45rem;}
+
+/* GLOSSARY */
+.glossary-search{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Outfit',sans-serif;font-size:.82rem;padding:.6rem .95rem;outline:none;margin-bottom:.8rem;transition:border-color .18s;}
+.glossary-search:focus{border-color:var(--accent2);}
+.gloss-item{padding:.7rem .85rem;border-radius:8px;background:var(--card2);border:1px solid var(--border);margin-bottom:.4rem;cursor:pointer;transition:all .16s;}
+.gloss-item:hover,.gloss-item.open{border-color:rgba(79,195,247,.35);}
+.gloss-term{font-weight:600;font-size:.82rem;color:var(--accent2);display:flex;justify-content:space-between;align-items:center;}
+.gloss-category{font-size:.52rem;color:var(--purple);letter-spacing:.09em;text-transform:uppercase;}
+.gloss-def{font-size:.74rem;color:var(--text2);line-height:1.65;margin-top:.45rem;display:none;}
+.gloss-item.open .gloss-def{display:block;}
+.gloss-chevron{color:var(--text3);font-size:.68rem;transition:transform .16s;}
+.gloss-item.open .gloss-chevron{transform:rotate(90deg);color:var(--accent2);}
+
+/* STREAK */
+.streak-hero{background:linear-gradient(135deg,#1a2a10 0%,#0f2010 100%);border:1px solid rgba(74,222,128,.2);border-radius:12px;padding:1.15rem;text-align:center;margin-bottom:.8rem;}
+.streak-num{font-family:'Syne',sans-serif;font-weight:800;font-size:2.8rem;color:var(--green);}
+.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:.35rem;margin:.7rem 0;}
+.day-cell{aspect-ratio:1;border-radius:6px;background:var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.53rem;color:var(--text2);cursor:pointer;transition:all .16s;border:1px solid transparent;}
+.day-cell.practiced{background:rgba(74,222,128,.22);border-color:rgba(74,222,128,.38);color:var(--green);}
+.day-cell.today{border-color:var(--accent);color:var(--accent);}
+.day-cell .day-name{font-size:.46rem;text-transform:uppercase;opacity:.7;}
+.day-cell .day-num{font-size:.7rem;font-weight:700;}
+
+/* MARIMBA */
+.marimba-wrap{background:linear-gradient(180deg,#0c0a04 0%,#1a1408 50%,#0c0a04 100%);border:1px solid #2a2010;border-radius:10px;padding:.85rem .45rem 1.2rem;overflow:hidden;}
+.marimba-frame{display:flex;gap:1.5px;justify-content:center;align-items:flex-end;height:100px;overflow:hidden;width:100%;}
+.bw{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;flex-shrink:0;transition:transform .07s;}
+.bw:hover{transform:translateY(-3px);}
+.bw:active{transform:translateY(1px);}
+.bar{border-radius:2px 2px 4px 4px;border:1px solid rgba(0,0,0,.35);transition:filter .1s,box-shadow .1s;}
+.bar.wh{background:linear-gradient(180deg,#f0e8d2 0%,#d8c890 50%,#c0a868 100%);box-shadow:1px 2px 3px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.5);}
+.bar.playing{filter:brightness(2.2) saturate(1.6);box-shadow:0 0 11px #ffe066,0 0 22px rgba(255,220,80,.38)!important;}
+.res{width:86%;border-radius:0 0 50% 50%/0 0 8px 8px;background:linear-gradient(180deg,#3a3a5a 0%,#1e1e32 100%);border:1px solid #2a2a48;}
+.nlbl{font-size:.36rem;color:#4a6080;font-family:monospace;margin-top:1px;}
+.ctrl-row{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;justify-content:center;margin:.6rem 0;}
+.ctrl-btn{font-family:'Outfit',sans-serif;font-size:.64rem;font-weight:500;padding:.4rem .85rem;border-radius:6px;border:1px solid;cursor:pointer;background:transparent;transition:all .16s;}
+.ctrl-btn-o{color:var(--accent);border-color:rgba(245,166,35,.5);}
+.ctrl-btn-o:hover{background:var(--accent);color:#0a0f1e;}
+.ctrl-btn-b{color:var(--accent2);border-color:rgba(79,195,247,.4);}
+.ctrl-btn-b:hover{background:var(--accent2);color:#0a0f1e;}
+.ctrl-btn-g{color:var(--green);border-color:rgba(74,222,128,.4);}
+.ctrl-btn-g:hover{background:var(--green);color:#0a0f1e;}
+.ctrl-btn-d{color:var(--text2);border-color:var(--border);}
+.ctrl-btn-d:hover{border-color:var(--text2);color:var(--text);}
+.ctrl-btn-p{color:var(--purple);border-color:rgba(192,132,252,.4);}
+.ctrl-btn-p:hover{background:var(--purple);color:#0a0f1e;}
+.tempo-row{display:flex;align-items:center;gap:.38rem;font-size:.6rem;color:var(--text2);justify-content:center;}
+.pb-wrap{padding:0 .45rem;}
+.pb{height:2px;background:var(--border);border-radius:1px;}
+.pb-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:1px;width:0%;transition:width .07s linear;}
+.play-status{text-align:center;font-size:.58rem;color:var(--text2);margin:.28rem 0;}
+.score-block{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.8rem;margin-bottom:.6rem;}
+.score-tag{display:inline-flex;align-items:center;gap:.28rem;font-size:.54rem;letter-spacing:.1em;text-transform:uppercase;padding:.14rem .55rem;border-radius:20px;border:1px solid;margin-bottom:.45rem;}
+.note-row{display:flex;flex-wrap:wrap;gap:.18rem;align-items:center;}
+.nc{display:inline-flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .07s;}
+.nc:hover{transform:scale(1.12);}
+.nc .p{font-size:.68rem;font-weight:500;color:var(--text);padding:.06rem .2rem;border-radius:3px;border:1px solid var(--border);background:var(--surface);transition:all .1s;}
+.nc:hover .p{border-color:var(--accent);color:var(--accent);}
+.nc .d{font-size:.42rem;color:var(--text2);}
+.bl{color:var(--text3);font-size:.8rem;margin:0 .06rem;align-self:center;}
+.dyn{font-style:italic;font-size:.68rem;margin:0 .1rem;align-self:center;}
+.dyn-mf{color:var(--green);}
+.dyn-f{color:var(--red);}
+.dyn-p{color:var(--accent2);}
+.r-mark{font-size:.5rem;color:var(--accent);background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.22);padding:.02rem .17rem;border-radius:2px;align-self:center;}
+.scales-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:.42rem;}
+.sc-card{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.65rem .5rem;text-align:center;cursor:pointer;transition:all .18s;}
+.sc-card:hover{border-color:var(--accent);transform:translateY(-2px);}
+.sc-card.active-scale{border-color:var(--accent);background:rgba(245,166,35,.07);}
+.sc-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.95rem;color:var(--accent);}
+.sc-info{font-size:.48rem;color:var(--text2);line-height:1.5;margin-top:.15rem;}
+.rud-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.5rem;}
+.rud-card{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.8rem;cursor:pointer;transition:all .18s;}
+.rud-card:hover{border-color:var(--accent2);}
+.rud-card.mastered{border-color:var(--green);background:rgba(74,222,128,.05);}
+.rud-name{font-weight:600;font-size:.78rem;color:var(--text);margin-bottom:.22rem;}
+.rud-pattern{font-family:monospace;font-size:.58rem;color:var(--accent2);letter-spacing:.03em;}
+.rud-status{font-size:.54rem;margin-top:.32rem;}
+.upload-hero{background:linear-gradient(135deg,#0f1e35 0%,#1a2a45 100%);border:2px dashed var(--border);border-radius:12px;padding:1.8rem 1.1rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:.8rem;position:relative;overflow:hidden;}
+.upload-hero:hover,.upload-hero.dragover{border-color:var(--accent2);}
+.upload-hero.has-image{border-color:var(--green);border-style:solid;}
+.upload-icon{font-size:2.2rem;margin-bottom:.5rem;display:block;}
+.upload-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;margin-bottom:.25rem;}
+.upload-sub{font-size:.72rem;color:var(--text2);line-height:1.55;}
+.upload-sub b{color:var(--accent2);}
+.upload-preview{width:100%;max-height:220px;object-fit:contain;border-radius:8px;margin-top:.8rem;display:none;}
+.upload-preview.show{display:block;}
+.analysis-block{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.95rem;margin-top:.7rem;display:none;}
+.analysis-block.show{display:block;}
+.analysis-header{display:flex;align-items:center;gap:.42rem;font-family:'Syne',sans-serif;font-weight:700;font-size:.85rem;color:var(--accent2);margin-bottom:.6rem;}
+.analysis-text{font-size:.76rem;line-height:1.8;color:var(--text);white-space:pre-wrap;}
+.thinking-dots span{animation:blink 1.2s infinite;color:var(--accent2);}
+.thinking-dots span:nth-child(2){animation-delay:.2s;}
+.thinking-dots span:nth-child(3){animation-delay:.4s;}
+@keyframes blink{0%,80%,100%{opacity:0}40%{opacity:1}}
+.spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent2);animation:spin .7s linear infinite;display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lesson-card{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.85rem;cursor:pointer;transition:all .16s;margin-bottom:.45rem;}
+.lesson-card:hover{border-color:rgba(79,195,247,.3);}
+.lesson-card.open{border-color:var(--accent2);}
+.lesson-top{display:flex;justify-content:space-between;align-items:center;}
+.lesson-title{font-weight:600;font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:.38rem;}
+.lesson-chevron{color:var(--text2);font-size:.68rem;transition:transform .16s;}
+.lesson-card.open .lesson-chevron{transform:rotate(90deg);color:var(--accent2);}
+.lesson-body{display:none;margin-top:.7rem;font-size:.74rem;color:var(--text2);line-height:1.75;}
+.lesson-card.open .lesson-body{display:block;}
+.welcome-hero{background:linear-gradient(135deg,#0f2040 0%,#0f1830 100%);border:1px solid rgba(79,195,247,.2);border-radius:12px;padding:1.4rem;margin-bottom:.9rem;position:relative;overflow:hidden;}
+.welcome-hero::before{content:'🥁';position:absolute;right:1.1rem;top:50%;transform:translateY(-50%);font-size:3.2rem;opacity:.1;}
+.welcome-name{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(1.25rem,5vw,1.8rem);background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.28rem;}
+.welcome-sub{font-size:.76rem;color:var(--text2);line-height:1.6;}
+.routine-item{display:flex;gap:.6rem;align-items:center;padding:.6rem .75rem;background:var(--card2);border:1px solid var(--border);border-radius:8px;margin-bottom:.38rem;}
+.routine-num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#0a0f1e;font-family:'Syne',sans-serif;font-weight:800;font-size:.78rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.routine-text{font-size:.78rem;color:var(--text);line-height:1.4;}
+.routine-time{font-size:.6rem;color:var(--accent2);margin-top:.08rem;}
+.log-entry{display:flex;gap:.6rem;align-items:flex-start;padding:.6rem .75rem;border-radius:8px;background:var(--card2);border:1px solid var(--border);margin-bottom:.38rem;}
+.log-icon{font-size:1rem;flex-shrink:0;}
+.log-title{font-weight:500;font-size:.76rem;color:var(--text);}
+.log-date{font-size:.58rem;color:var(--text2);margin-top:.08rem;}
+.log-note{font-size:.68rem;color:var(--text2);margin-top:.22rem;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<!-- ── PIN SCREEN ── -->
+<div id="pinScreen">
+  <div class="pin-logo">🥁</div>
+  <div class="pin-title">Azlan's Percussion Hub</div>
+  <div class="pin-sub">Scoggins Band · Frisco ISD · 7th Grade<br>Enter your 6-digit sync PIN to keep your progress on every device.</div>
+
+  <div class="pin-card">
+    <div class="pin-tabs">
+      <button class="pin-tab active" id="tabEnter" onclick="switchPinTab('enter')">Enter PIN</button>
+      <button class="pin-tab" id="tabCreate" onclick="switchPinTab('create')">Create PIN</button>
+    </div>
+
+    <div class="pin-display" id="pinDisplay">
+      <div class="pin-dot active-dot" id="pd0"></div>
+      <div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div>
+      <div class="pin-dot" id="pd3"></div>
+      <div class="pin-dot" id="pd4"></div>
+      <div class="pin-dot" id="pd5"></div>
+    </div>
+
+    <div class="pin-keypad">
+      <button class="pin-key" onclick="pinKey('1')">1</button>
+      <button class="pin-key" onclick="pinKey('2')">2</button>
+      <button class="pin-key" onclick="pinKey('3')">3</button>
+      <button class="pin-key" onclick="pinKey('4')">4</button>
+      <button class="pin-key" onclick="pinKey('5')">5</button>
+      <button class="pin-key" onclick="pinKey('6')">6</button>
+      <button class="pin-key" onclick="pinKey('7')">7</button>
+      <button class="pin-key" onclick="pinKey('8')">8</button>
+      <button class="pin-key" onclick="pinKey('9')">9</button>
+      <button class="pin-key zero" onclick="pinKey('0')">0</button>
+      <button class="pin-key del" onclick="pinDel()">⌫ Del</button>
+    </div>
+
+    <button class="pin-enter" id="pinEnterBtn" onclick="submitPIN()" disabled>Connect</button>
+    <div class="pin-msg" id="pinMsg"></div>
+  </div>
+
+  <div class="pin-skip" onclick="skipPIN()">Use without sync (this device only)</div>
+</div>
+
+<!-- ── APP SHELL (hidden until login) ── -->
+<div id="appShell" style="display:none">
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">🥁</div>
+    <div>
+      <div class="logo-text">Azlan's Percussion Hub</div>
+      <div class="logo-sub">Scoggins Band · Frisco ISD</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div style="display:flex;align-items:center;gap:.2rem">
+      <div class="sync-dot" id="syncDot"></div>
+      <span class="sync-label" id="syncLabel">local</span>
+    </div>
+    <span class="hchip hchip-o">♩=80</span>
+    <span class="hchip hchip-g" id="streakChip">🔥 0</span>
+    <div class="user-btn" id="userBtn" onclick="toggleUserMenu()" title="Sync settings">
+      <span id="pinBadge" style="font-size:.6rem;color:var(--text2);letter-spacing:.05em">NO PIN</span>
+    </div>
+    <div class="user-menu" id="userMenu">
+      <div class="menu-item" id="menuPinInfo" style="font-size:.7rem;color:var(--text2);padding:.4rem .85rem">PIN: <span id="menuPinVal">not set</span></div>
+      <div class="menu-divider"></div>
+      <div class="menu-item" onclick="showPINScreen();toggleUserMenu()">🔢 Change PIN</div>
+      <div class="menu-item" onclick="forceSave();toggleUserMenu()">☁️ Save now</div>
+      <div class="menu-item" onclick="forceLoad();toggleUserMenu()">🔄 Reload from cloud</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item" onclick="skipPIN();toggleUserMenu()" style="color:var(--text3)">Disconnect sync</div>
+    </div>
+  </div>
+</header>
+
+<nav class="nav-tabs">
+  <button class="tab-btn active" onclick="showPage('home')">🏠 Home</button>
+  <button class="tab-btn" onclick="showPage('upload')">📸 Upload</button>
+  <button class="tab-btn" onclick="showPage('marimba')">🎹 Marimba</button>
+  <button class="tab-btn" onclick="showPage('snare')">🥁 Snare</button>
+  <button class="tab-btn" onclick="showPage('metro')">🎙️ Metronome</button>
+  <button class="tab-btn" onclick="showPage('timer')">⏱️ Timer</button>
+  <button class="tab-btn" onclick="showPage('scales')">🎼 Scales</button>
+  <button class="tab-btn" onclick="showPage('rudiments')">🔁 Rudiments</button>
+  <button class="tab-btn" onclick="showPage('sightread')">👁️ Sight-Read</button>
+  <button class="tab-btn" onclick="showPage('notes')">📝 Notes</button>
+  <button class="tab-btn" onclick="showPage('concert')">🎗️ Concert</button>
+  <button class="tab-btn" onclick="showPage('glossary')">📖 Glossary</button>
+  <button class="tab-btn" onclick="showPage('lessons')">📚 Lessons</button>
+  <button class="tab-btn" onclick="showPage('progress')">📈 Progress</button>
+  <button class="tab-btn" onclick="showPage('reference')">🎧 Reference</button>
+</nav>
+
+<!-- HOME -->
+<div class="page active fade-in" id="page-home">
+  <div class="welcome-hero">
+    <div class="welcome-name" id="homeGreeting">Hey Azlan! 👋</div>
+    <div class="welcome-sub">Your personal percussion coach for <b style="color:var(--accent)">Scoggins Band 2026-2027</b>.<br>Upload a photo of any sheet music to get started.</div>
+  </div>
+  <div class="sec-h">📋 Daily Practice Routine</div>
+  <div class="routine-item"><div class="routine-num">1</div><div><div class="routine-text"><b>Warm Up — Scales</b></div><div class="routine-time">5–10 min · C F Bb Eb Ab Db Gb</div></div></div>
+  <div class="routine-item"><div class="routine-num">2</div><div><div class="routine-text"><b>Mallet Etude</b></div><div class="routine-time">10–20 min · One section at a time · No stopping!</div></div></div>
+  <div class="routine-item"><div class="routine-num">3</div><div><div class="routine-text"><b>Full Run-Through</b></div><div class="routine-time">5 min · Scales + Etude · Record yourself!</div></div></div>
+  <div class="sec-h">🎯 Audition Goals</div>
+  <div class="three-col" style="margin-bottom:.9rem">
+    <div class="stat-card"><div style="font-size:1.3rem;margin-bottom:.22rem">🎯</div><div style="font-size:.7rem;font-weight:600">Note Accuracy</div><div class="stat-label">Goal 1</div></div>
+    <div class="stat-card"><div style="font-size:1.3rem;margin-bottom:.22rem">↩️</div><div style="font-size:.7rem;font-weight:600">Rebound Strokes</div><div class="stat-label">Goal 2</div></div>
+    <div class="stat-card"><div style="font-size:1.3rem;margin-bottom:.22rem">⏩</div><div style="font-size:.7rem;font-weight:600">No Stopping</div><div class="stat-label">Goal 3</div></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="showPage('upload')">📸 Upload Sheet</button>
+    <button class="btn btn-secondary" onclick="showPage('metro')">🎙️ Metronome</button>
+    <button class="btn btn-green" onclick="showPage('timer')">⏱️ Start Timer</button>
+  </div>
+  <div class="sec-h">📅 Frisco ISD Band Events</div>
+  <div class="card">
+    <div style="font-size:.74rem;color:var(--text2);line-height:1.9">
+      <div style="display:flex;gap:.6rem;margin-bottom:.3rem"><span class="tag tag-uil">UIL</span><span>UIL Concert & Sight-Reading — Spring (graded, required)</span></div>
+      <div style="display:flex;gap:.6rem;margin-bottom:.3rem"><span class="tag tag-concert">Camp</span><span>Frisco ISD Summer Band Camp — June 1-4, 2026</span></div>
+      <div style="display:flex;gap:.6rem;margin-bottom:.3rem"><span class="tag tag-wind">Region</span><span>Region Band — mallets + snare + timpani audition</span></div>
+      <div style="display:flex;gap:.6rem"><span class="tag tag-sym">Perc</span><span>Liberty HS Percussion Ensemble Concert — Spring</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- UPLOAD -->
+<div class="page fade-in" id="page-upload">
+  <div class="card">
+    <div class="card-title">📸 Upload Your Sheet Music</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.8rem">Take a photo of any music sheet — AI will analyze it and build a practice plan!</p>
+    <div class="upload-hero" id="uploadHero" onclick="document.getElementById('fileInput').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">
+      <span class="upload-icon" id="uploadIcon">📷</span>
+      <div class="upload-title" id="uploadTitle">Tap to Take Photo or Upload</div>
+      <div class="upload-sub" id="uploadSub">Use your phone camera or pick from photos<br><b>JPG, PNG supported · works on any device</b></div>
+      <img class="upload-preview" id="uploadPreview" src="" alt="Sheet Music">
+    </div>
+    <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFile(event)" style="display:none">
+  </div>
+  <div class="card" id="customizePanel" style="display:none">
+    <div class="card-title">⚙️ Customize Your Practice</div>
+    <div class="customize-grid">
+      <div class="cfield"><label>Piece / Assignment Name</label><input type="text" id="cName" placeholder="e.g. Mallet Etude..."></div>
+      <div class="cfield"><label>Target Tempo (♩=)</label><input type="number" id="cTempo" value="80" min="40" max="220"></div>
+      <div class="cfield"><label>Instrument</label><select id="cInstrument"><option>Marimba</option><option>Snare Drum</option><option>Xylophone</option><option>Bells / Glockenspiel</option><option>Vibraphone</option><option>Timpani</option><option>Bass Drum</option><option>Auxiliary Percussion</option><option>Multi-Percussion</option></select></div>
+      <div class="cfield"><label>Band Level</label><select id="cLevel"><option>Concert Band</option><option>Symphonic Band</option><option>Wind Ensemble</option><option>Beginning Band</option><option>Percussion Ensemble</option></select></div>
+      <div class="cfield full-width"><label>Teacher's Instructions / Focus Areas</label><textarea id="cInstructions" placeholder="e.g. Watch rebound stroke, focus on measures 3-5..."></textarea></div>
+      <div class="cfield"><label>Note Type</label><select id="cNoteType"><option>8th Notes</option><option>Quarter Notes</option><option>16th Notes</option><option>Mixed</option><option>Triplets</option></select></div>
+      <div class="cfield"><label>Focus Area</label><select id="cFocus"><option>Note Accuracy</option><option>Dynamics (p/mf/f)</option><option>Tempo / Rhythm</option><option>Technique (stroke)</option><option>Memorization</option><option>Full Performance</option></select></div>
+    </div>
+    <button class="btn btn-primary" onclick="analyzeSheet()">🤖 Analyze with AI Coach</button>
+  </div>
+  <div class="analysis-block" id="analysisResult">
+    <div class="analysis-header"><span>🤖</span><span>AI Percussion Coach</span><div class="spinner" id="aiSpinner" style="display:none;margin-left:auto"></div></div>
+    <div class="analysis-text" id="analysisText"></div>
+    <div class="btn-row" id="analysisActions" style="display:none">
+      <button class="btn btn-secondary btn-sm" onclick="showPage('marimba')">🎹 Marimba</button>
+      <button class="btn btn-green btn-sm" onclick="logPracticeSession()">✅ Log Session</button>
+      <button class="btn btn-sm" style="color:var(--text2);border-color:var(--border)" onclick="saveToNotes()">📝 Save to Notes</button>
+    </div>
+  </div>
+</div>
+
+<!-- MARIMBA -->
+<div class="page fade-in" id="page-marimba">
+  <div class="card">
+    <div class="card-title">🎹 Interactive Marimba</div>
+    <div class="marimba-wrap"><div class="marimba-frame" id="marimbaFrame"></div></div>
+    <div class="ctrl-row">
+      <button class="ctrl-btn ctrl-btn-o" id="playBtn" onclick="togglePlay()">▶ Full Etude</button>
+      <button class="ctrl-btn ctrl-btn-d" onclick="stopPlay()">■ Stop</button>
+      <button class="ctrl-btn ctrl-btn-b" onclick="playSection('concert')">Concert Band</button>
+      <button class="ctrl-btn ctrl-btn-g" onclick="playSection('sym')">Symphonic</button>
+      <button class="ctrl-btn ctrl-btn-p" onclick="playSection('wind')">Wind Ensemble</button>
+    </div>
+    <div class="tempo-row"><span>Slower</span><input type="range" id="tempoSlider" min="40" max="140" value="80" oninput="updateTempo(this.value)" style="width:120px"><span>Faster</span><span style="color:var(--accent);font-weight:600;margin-left:.3rem">♩=<span id="tempoVal">80</span></span></div>
+    <div class="pb-wrap" style="margin:.38rem 0"><div class="pb"><div class="pb-fill" id="pbFill"></div></div></div>
+    <div class="play-status" id="playStatus">Ready · tap a bar or press Play</div>
+  </div>
+  <div class="sec-h">📄 Score</div>
+  <div class="score-block"><div class="score-tag tag-concert">Concert Band</div><div style="font-size:.58rem;color:var(--text2);margin-bottom:.42rem">mf · 8th notes · C major · R-L alternating</div><div class="note-row" id="concertRow"><span class="dyn dyn-mf">mf</span></div></div>
+  <div class="score-block"><div class="score-tag tag-sym">Symphonic Band</div><div style="font-size:.58rem;color:var(--text2);margin-bottom:.42rem">mf → f · Bb/Eb chromatic · R = right mallet accent</div><div class="note-row" id="symRow"></div></div>
+  <div class="score-block"><div class="score-tag tag-wind">Wind Ensemble</div><div style="font-size:.58rem;color:var(--text2);margin-bottom:.42rem">p → mf → f → p arc · RR double strokes</div><div class="note-row" id="windRow"><span class="dyn dyn-p">p</span></div></div>
+</div>
+
+<!-- SNARE -->
+<div class="page fade-in" id="page-snare">
+  <div class="card">
+    <div class="card-title">🥁 Snare Drum Pad</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.8rem">Region auditions test snare AND mallets. Practice both every day!</p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:.85rem">
+      <div style="position:relative;width:240px;height:240px">
+        <div style="position:absolute;inset:0;border-radius:50%;border:20px solid #3a3028;box-shadow:0 0 0 4px #2a2018,0 6px 24px rgba(0,0,0,.5)" onclick="hitSnare('rim')"></div>
+        <div style="position:absolute;inset:20px;border-radius:50%;background:radial-gradient(ellipse at 35% 35%,#4a3a28 0%,#2a1e10 40%,#1a1008 100%);border:4px solid #5a4a30;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.25rem;cursor:pointer" id="drumHead" onclick="hitSnare('head')">
+          <div style="font-size:1.4rem">🥁</div>
+          <div style="font-size:.54rem;color:rgba(255,255,255,.3);letter-spacing:.1em">TAP HEAD</div>
+          <div style="font-size:.46rem;color:rgba(255,255,255,.2)">edge = rim shot</div>
+        </div>
+      </div>
+      <div class="hit-counter"><span id="hitCount">0</span> <span style="font-size:.65rem;color:var(--text2)">hits</span></div>
+      <div class="sticking-display" id="stickingDisplay">R · L · R · L</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">🎵 Sticking Patterns</div>
+    <div class="snare-pattern-row" id="snarePatternRow"></div>
+    <div class="mono-pre" id="patternDisplay">Select a pattern above</div>
+    <div class="tip-box" style="margin-top:.6rem"><b>Region snare requirements:</b> Single stroke roll, Double stroke roll, Flam Accent, Single Drag Tap. Practice each slow → fast → slow without stopping.</div>
+  </div>
+</div>
+
+<!-- METRONOME -->
+<div class="page fade-in" id="page-metro">
+  <div class="card">
+    <div class="card-title">🎙️ Metronome</div>
+    <div class="metro-display">
+      <div class="metro-bpm" id="metroBPM">80</div>
+      <div style="font-size:.62rem;color:var(--text2);letter-spacing:.13em;text-transform:uppercase;margin-top:.18rem">BPM</div>
+      <div class="metro-beat-row" id="metroBeatRow"></div>
+      <div class="sig-row">
+        <button class="sig-btn active" onclick="setTimeSig(4)" id="sig44">4/4</button>
+        <button class="sig-btn" onclick="setTimeSig(3)" id="sig34">3/4</button>
+        <button class="sig-btn" onclick="setTimeSig(2)" id="sig24">2/4</button>
+        <button class="sig-btn" onclick="setTimeSig(6)" id="sig68">6/8</button>
+      </div>
+    </div>
+    <div class="metro-adj">
+      <button class="bpm-btn" onclick="adjBPM(-10)">-10</button>
+      <button class="bpm-btn" onclick="adjBPM(-5)">-5</button>
+      <button class="bpm-btn" onclick="adjBPM(-1)">-1</button>
+      <button class="bpm-btn" onclick="adjBPM(1)">+1</button>
+      <button class="bpm-btn" onclick="adjBPM(5)">+5</button>
+      <button class="bpm-btn" onclick="adjBPM(10)">+10</button>
+    </div>
+    <input type="range" id="metroSlider" min="30" max="220" value="80" oninput="setMetroBPM(parseInt(this.value))" style="margin:.4rem 0">
+    <div class="metro-controls">
+      <button class="metro-btn metro-btn-start" onclick="unlockAudio();startMetro()">▶ Start</button>
+      <button class="metro-btn metro-btn-stop" onclick="stopMetro()">■ Stop</button>
+      <button class="metro-btn metro-btn-tap" onclick="tapTempo()" id="tapBtn">👆 Tap Tempo</button>
+    </div>
+    <div class="metro-preset-row">
+      <button class="preset-btn" onclick="setMetroBPM(60)">60</button>
+      <button class="preset-btn" onclick="setMetroBPM(72)">72</button>
+      <button class="preset-btn" onclick="setMetroBPM(80)">80 ← Etude</button>
+      <button class="preset-btn" onclick="setMetroBPM(96)">96</button>
+      <button class="preset-btn" onclick="setMetroBPM(120)">120</button>
+      <button class="preset-btn" onclick="setMetroBPM(132)">132</button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMER -->
+<div class="page fade-in" id="page-timer">
+  <div class="card">
+    <div class="card-title">⏱️ Practice Session Timer</div>
+    <div class="timer-display">
+      <div class="timer-progress-ring">
+        <svg width="110" height="110" viewBox="0 0 110 110"><circle class="ring-bg" cx="55" cy="55" r="50"/><circle class="ring-fill" id="ringFill" cx="55" cy="55" r="50"/></svg>
+        <div class="timer-inner"><div class="timer-inner-time" id="timerInner">--:--</div><div class="timer-inner-label" id="timerInnerLabel">ready</div></div>
+      </div>
+      <div class="timer-time" id="timerDisplay">25:00</div>
+      <div class="timer-phase" id="timerPhase">SELECT A ROUTINE BELOW</div>
+    </div>
+    <div class="btn-row" style="justify-content:center;margin-bottom:.7rem">
+      <button class="btn btn-primary" onclick="startTimer()" id="timerStartBtn">▶ Start</button>
+      <button class="btn btn-red" onclick="stopTimer()">■ Reset</button>
+      <button class="btn btn-secondary" onclick="skipPhase()">⏭ Skip</button>
+    </div>
+    <div class="btn-row" style="justify-content:center;margin-bottom:.7rem">
+      <button class="btn btn-sm" style="color:var(--text2);border-color:var(--border)" onclick="setRoutine('short')">⚡ Quick 20min</button>
+      <button class="btn btn-sm" style="color:var(--text2);border-color:var(--border)" onclick="setRoutine('full')">✅ Full 35min</button>
+      <button class="btn btn-sm" style="color:var(--text2);border-color:var(--border)" onclick="setRoutine('audition')">🏆 Audition 45min</button>
+    </div>
+    <ul class="phase-list" id="phaseList"></ul>
+  </div>
+</div>
+
+<!-- SCALES -->
+<div class="page fade-in" id="page-scales">
+  <div class="card">
+    <div class="card-title">🎼 Flat Scales — Circle of Fourths</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.8rem">Perform all 7 <b style="color:var(--accent)">from memory</b>. Tap to hear each scale.</p>
+    <div class="scales-grid" id="scalesGrid"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">✅ Scale Memory Tracker</div>
+    <div id="scaleMasteryGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:.38rem;margin-bottom:.6rem"></div>
+    <div class="tip-box"><b>Tap a box above</b> to mark a scale as memorized. Syncs across all your devices!</div>
+    <div class="mono-pre">C → F → Bb → Eb → Ab → Db → Gb
+Each step adds one flat.</div>
+  </div>
+</div>
+
+<!-- RUDIMENTS -->
+<div class="page fade-in" id="page-rudiments">
+  <div class="card">
+    <div class="card-title">🔁 Percussion Rudiments</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.8rem">Tap to mark mastered. <span style="color:var(--purple)">Purple = 7th grade Frisco ISD focus.</span></p>
+    <div class="rud-grid" id="rudGrid"></div>
+  </div>
+</div>
+
+<!-- SIGHT READING -->
+<div class="page fade-in" id="page-sightread">
+  <div class="card">
+    <div class="card-title">👁️ Sight-Reading Trainer</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.6rem">A new rhythm appears — tap each note symbol in time. UIL and Region both test sight-reading!</p>
+    <div class="sr-diff-row">
+      <button class="diff-btn active" onclick="setSRDiff(1)" id="diff1">Beginner</button>
+      <button class="diff-btn" onclick="setSRDiff(2)" id="diff2">Intermediate</button>
+      <button class="diff-btn" onclick="setSRDiff(3)" id="diff3">Advanced</button>
+    </div>
+    <div class="sr-display" id="srDisplay"><div style="color:var(--text2);font-size:.78rem">Press "New Pattern" to begin</div></div>
+    <div class="btn-row" style="justify-content:center">
+      <button class="btn btn-primary" onclick="generateSRPattern()">🎲 New Pattern</button>
+      <button class="btn btn-secondary" onclick="playSRPattern()">▶ Hear It</button>
+      <button class="btn btn-green" onclick="checkSR()">✅ Check</button>
+    </div>
+    <div class="sr-feedback" id="srFeedback"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.8rem">
+      <div style="font-size:.68rem;color:var(--text2)">Session score:</div>
+      <div class="sr-score" id="srScore">0 / 0</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">💡 Sight-Reading Strategy</div>
+    <div class="tip-box"><b>You get 30 seconds to look before playing.</b> Check time sig, key sig, find the hardest measure, clap silently.</div>
+    <div class="tip-box tip-blue"><b>Never stop.</b> Keep the rhythm going even through wrong notes.</div>
+  </div>
+</div>
+
+<!-- NOTES -->
+<div class="page fade-in" id="page-notes">
+  <div class="card">
+    <div class="card-title">📝 Teacher Notes</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.7rem">Write down what your teacher says. Saves automatically and syncs to all your devices.</p>
+    <div class="add-note-area">
+      <textarea id="newNoteText" placeholder="e.g. Mr. [Director] said watch my rebound in measure 3..."></textarea>
+      <button class="btn btn-primary btn-sm" onclick="addNote()" style="align-self:flex-end;white-space:nowrap">+ Add</button>
+    </div>
+    <ul class="notes-list" id="notesList"></ul>
+  </div>
+</div>
+
+<!-- CONCERT -->
+<div class="page fade-in" id="page-concert">
+  <div class="card">
+    <div class="card-title">🎗️ Concert & UIL Checklist</div>
+    <p style="font-size:.74rem;color:var(--text2);margin-bottom:.7rem">Check everything before leaving for the concert. Syncs across devices!</p>
+    <div id="checklistContainer"></div>
+    <div class="checklist-status" id="checklistStatus"></div>
+    <div class="btn-row"><button class="btn btn-sm" style="color:var(--text2);border-color:var(--border)" onclick="resetChecklist()">↺ Reset All</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">🏆 UIL Info</div>
+    <div class="tip-box"><b>UIL:</b> Your band performs 3 pieces + sight-reads cold. Both parts are graded. Required attendance.</div>
+    <div class="tip-box"><b>Formal Uniform:</b> Black dress pants · Black dress shirt (button-up, sleeves to elbow) · Black closed-toe flat shoes · Long black dress socks</div>
+  </div>
+</div>
+
+<!-- GLOSSARY -->
+<div class="page fade-in" id="page-glossary">
+  <div class="card">
+    <div class="card-title">📖 Music Vocabulary</div>
+    <input class="glossary-search" id="glossSearch" placeholder="🔍 Search terms..." oninput="filterGloss(this.value)">
+    <div id="glossList"></div>
+  </div>
+</div>
+
+<!-- LESSONS -->
+<div class="page fade-in" id="page-lessons">
+  <div class="card">
+    <div class="card-title">📚 Percussion Lessons</div>
+    <div id="lessonsContainer"></div>
+  </div>
+</div>
+
+<!-- PROGRESS -->
+<div class="page fade-in" id="page-progress">
+  <div class="card">
+    <div class="card-title">🔥 Practice Streak</div>
+    <div class="streak-hero">
+      <div class="streak-num" id="streakNum">0</div>
+      <div style="font-size:.65rem;color:var(--text2);letter-spacing:.13em;text-transform:uppercase">day streak</div>
+      <div style="font-size:.7rem;color:var(--text2);margin-top:.35rem" id="streakMsg">Start practicing to build your streak!</div>
+    </div>
+    <div style="font-size:.65rem;color:var(--text2);text-align:center;margin-bottom:.38rem;letter-spacing:.07em;text-transform:uppercase">This Week</div>
+    <div class="week-grid" id="weekGrid"></div>
+    <button class="btn btn-green btn-sm" onclick="markTodayPracticed()" style="display:block;margin:.7rem auto 0">✅ Mark Today Practiced</button>
+  </div>
+  <div class="card">
+    <div class="card-title">📊 Stats</div>
+    <div class="two-col" style="margin-bottom:.7rem">
+      <div class="stat-card"><div class="stat-num" id="statSessions">0</div><div class="stat-label">Sessions</div></div>
+      <div class="stat-card"><div class="stat-num" id="statSheets">0</div><div class="stat-label">Sheets</div></div>
+      <div class="stat-card"><div class="stat-num" id="statScales">0</div><div class="stat-label">Scale Plays</div></div>
+      <div class="stat-card"><div class="stat-num" id="statRuds">0</div><div class="stat-label">Rudiments</div></div>
+    </div>
+    <div class="sec-h">Practice Log</div>
+    <div id="logContainer"><div style="font-size:.74rem;color:var(--text2);text-align:center;padding:1.1rem 0">No sessions logged yet!</div></div>
+    <button class="btn btn-red btn-sm" onclick="clearProgress()" style="margin-top:.45rem">🗑 Clear Log</button>
+  </div>
+  <div class="card">
+    <div class="card-title">🏁 Curriculum Milestones</div>
+    <div id="milestonesContainer"></div>
+  </div>
+</div>
+
+
+<!-- ═══════ REFERENCE RECORDINGS ═══════ -->
+<div class="page fade-in" id="page-reference">
+
+  <div class="card">
+    <div class="card-title">🎧 Reference Recordings</div>
+    <p style="font-size:.76rem;color:var(--text2);line-height:1.65;margin-bottom:.85rem">
+      Scoggins Band requires students to <b style="color:var(--accent)">listen to reference recordings often</b> — it's a graded requirement.
+      Below are the three etude levels playable in-app, plus curated YouTube links to professional performances.
+      Tap any YouTube link to open it.
+    </p>
+  </div>
+
+  <!-- IN-APP PLAYBACK -->
+  <div class="sec-h">🎵 Play Etude In-App</div>
+
+  <div class="card" id="refPlayerCard">
+    <div class="card-title" id="refTrackTitle">Select a track below</div>
+    <div style="font-size:.72rem;color:var(--text2);margin-bottom:.75rem" id="refTrackMeta"></div>
+
+    <!-- Custom progress bar -->
+    <div style="background:var(--surface);border-radius:10px;height:6px;margin:.75rem 0;cursor:pointer;position:relative" id="refProgressBar" onclick="refSeek(event)">
+      <div id="refProgress" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:10px;transition:width .1s linear"></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;font-size:.6rem;color:var(--text2);margin-bottom:.75rem">
+      <span id="refCurrentTime">0:00</span>
+      <span id="refTotalTime">0:00</span>
+    </div>
+
+    <!-- Playback controls -->
+    <div style="display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;align-items:center;margin-bottom:.5rem">
+      <button class="ctrl-btn ctrl-btn-d" onclick="refSkip(-5)">⏮ 5s</button>
+      <button class="ctrl-btn ctrl-btn-o" id="refPlayBtn" onclick="refToggle()" style="min-width:90px">▶ Play</button>
+      <button class="ctrl-btn ctrl-btn-d" onclick="refSkip(5)">5s ⏭</button>
+      <button class="ctrl-btn ctrl-btn-d" onclick="refStop()">■ Stop</button>
+    </div>
+
+    <!-- Tempo control for in-app playback -->
+    <div class="tempo-row" style="justify-content:center;margin-top:.5rem">
+      <span>Slower</span>
+      <input type="range" id="refTempoSlider" min="40" max="140" value="80" oninput="updateRefTempo(this.value)" style="width:110px">
+      <span>Faster</span>
+      <span style="color:var(--accent);font-weight:600;margin-left:.3rem">♩=<span id="refTempoVal">80</span></span>
+    </div>
+  </div>
+
+  <!-- TRACK LIST -->
+  <div class="sec-h">🎼 Mallet Etude — All 3 Levels</div>
+
+  <div id="refTrackList"></div>
+
+  <!-- SCALE REFERENCE -->
+  <div class="sec-h">🎼 Scale Reference Tracks</div>
+  <div id="refScaleList"></div>
+
+  <!-- YOUTUBE REFERENCE LINKS -->
+  <div class="sec-h">📺 Professional Reference Recordings</div>
+  <p style="font-size:.72rem;color:var(--text2);margin-bottom:.75rem">
+    These are free, legitimate YouTube recordings used by Texas band programs as reference material.
+    Listening to professional performances is the fastest way to internalize correct tone, tempo, and phrasing.
+  </p>
+  <div id="refYouTubeList"></div>
+
+  <!-- LISTENING LOG -->
+  <div class="sec-h">📋 Listening Log</div>
+  <p style="font-size:.72rem;color:var(--text2);margin-bottom:.6rem">
+    Scoggins Band tracks reference recording listens. Log each session here.
+  </p>
+  <div id="refListenLog">
+    <div style="font-size:.74rem;color:var(--text2);text-align:center;padding:.85rem 0" id="refLogEmpty">No listens logged yet.</div>
+  </div>
+  <button class="btn btn-green btn-sm" onclick="logListen()" style="margin-top:.5rem">+ Log a Listen</button>
+
+</div>
+
+</div><!-- end appShell -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════ AUDIO ENGINE ═══════
+// ═══ AUDIO ENGINE ═══
+// Strategy: create context on first user gesture, resume inline on every call.
+// Never use async/await for audio — it breaks timing. Just call resume() and
+// immediately use currentTime + a small lookahead offset so the note lands
+// after the resume completes (~5ms).
+
+const AC = window.AudioContext || window.webkitAudioContext;
+let ctx = null;
+
+function gc() {
+  // Create context if needed
+  if (!ctx) {
+    try { ctx = new AC(); } catch(e) { return null; }
+  }
+  // Resume inline — fire and forget, but add lookahead so sound plays after resume
+  if (ctx.state === 'suspended') {
+    ctx.resume();
+  }
+  return ctx;
+}
+
+// Call this from every button onclick — creates context in the gesture
+function unlockAudio() {
+  if (!ctx) { try { ctx = new AC(); } catch(e) {} }
+  if (ctx && ctx.state === 'suspended') { ctx.resume(); }
+}
+
+const FR={'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196,'A3':220,'B3':246.94,'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392,'A4':440,'B4':493.88,'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':784,'A5':880,'B5':987.77,'C6':1046.5,'Db3':138.59,'Eb3':155.56,'Gb3':185,'Ab3':207.65,'Bb3':233.08,'Db4':277.18,'Eb4':311.13,'Gb4':370,'Ab4':415.3,'Bb4':466.16,'Db5':554.37,'Eb5':622.25,'Gb5':740,'Ab5':830.61,'Bb5':932.33};
+function playNote(note,dur,when){const c=gc();if(!c)return;const f=FR[note];if(!f)return;const t=when||(c.currentTime+0.05);const o1=c.createOscillator(),o2=c.createOscillator(),o3=c.createOscillator();const gn=c.createGain(),fl=c.createBiquadFilter();const g1=c.createGain(),g2=c.createGain(),g3=c.createGain();o1.type='sine';o1.frequency.value=f;o2.type='sine';o2.frequency.value=f*4;o3.type='sine';o3.frequency.value=f*10;fl.type='lowpass';fl.frequency.value=f*5;g1.gain.value=.65;g2.gain.value=.18;g3.gain.value=.06;[[o1,g1],[o2,g2],[o3,g3]].forEach(([o,g])=>{o.connect(g);g.connect(fl);});fl.connect(gn);gn.connect(c.destination);const d=dur||.35;gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(.42,t+.007);gn.gain.exponentialRampToValueAtTime(.18,t+.05);gn.gain.exponentialRampToValueAtTime(.001,t+Math.max(d,.25));[o1,o2,o3].forEach(o=>o.start(t));o1.stop(t+d+.25);o2.stop(t+d+.1);o3.stop(t+.05);}
+function playSnareHit(type='head'){const c=gc();if(!c)return;const t=c.currentTime+0.05;const buf=c.createBuffer(1,c.sampleRate*.2,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(c.sampleRate*.04));const src=c.createBufferSource();src.buffer=buf;const gn=c.createGain();src.connect(gn);gn.connect(c.destination);gn.gain.value=type==='rim'?.6:.9;src.start(t);const osc=c.createOscillator();const og=c.createGain();osc.type='triangle';osc.frequency.value=type==='rim'?300:200;osc.connect(og);og.connect(c.destination);og.gain.setValueAtTime(.3,t);og.gain.exponentialRampToValueAtTime(.001,t+.08);osc.start(t);osc.stop(t+.08);}
+function playClick(accent=false){
+  const c=gc(); if(!c)return;
+  const t=c.currentTime;
+  scheduleClick(accent,t);
+}
+function scheduleClick(accent=false, when){
+  const c=gc(); if(!c)return;
+  const t=when||(c.currentTime+0.05);
+  // Accent beat: higher pitch wood-block sound
+  // Regular beat: softer click
+  const osc=c.createOscillator();
+  const gn=c.createGain();
+  osc.type='square';
+  osc.frequency.value=accent?1400:900;
+  osc.connect(gn);gn.connect(c.destination);
+  gn.gain.setValueAtTime(0,t);
+  gn.gain.linearRampToValueAtTime(accent?.55:.28,t+.002);
+  gn.gain.exponentialRampToValueAtTime(.001,t+.055);
+  osc.start(t);osc.stop(t+.07);
+  // Add a subtle low thud on accent beat
+  if(accent){
+    const o2=c.createOscillator();const g2=c.createGain();
+    o2.type='sine';o2.frequency.value=180;
+    o2.connect(g2);g2.connect(c.destination);
+    g2.gain.setValueAtTime(0,t);
+    g2.gain.linearRampToValueAtTime(.18,t+.003);
+    g2.gain.exponentialRampToValueAtTime(.001,t+.06);
+    o2.start(t);o2.stop(t+.07);
+  }
+}
+
+// ═══════ MARIMBA ═══════
+const WK=['C3','D3','E3','F3','G3','A3','B3','C4','D4','E4','F4','G4','A4','B4','C5','D5','E5','F5','G5','A5','B5','C6'];
+function buildMarimba(){const fr=document.getElementById('marimbaFrame');fr.innerHTML='';WK.forEach(note=>{const w=document.createElement('div');w.className='bw';w.id='bw-'+note;w.onclick=()=>{unlockAudio();playNote(note,.5);flashBar(note);};const oct=parseInt(note.slice(-1));const bH=44+(oct-3)*9;const bW=Math.max(12,Math.floor(860/WK.length)-3);const b=document.createElement('div');b.className='bar wh';b.style.cssText=`width:${bW}px;height:${bH}px;`;const r=document.createElement('div');r.className='res';r.style.cssText=`height:${8+(oct-3)*4}px;`;const l=document.createElement('div');l.className='nlbl';l.textContent=note[0];w.append(b,r,l);fr.appendChild(w);});}
+function flashBar(note){const el=document.getElementById('bw-'+note);if(!el)return;const b=el.querySelector('.bar');b.classList.add('playing');setTimeout(()=>b.classList.remove('playing'),340);}
+const CONCERT=[{n:'C4'},{n:'D4'},{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'B4'},{n:'C5'},{n:'C5'},{n:'B4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'C4'},{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'G4'},{n:'A4'},{n:'B4'},{n:'C5'},{n:'B4'},{n:'A4'},{n:'G4'},{n:'C4'}];
+const SYM=[{n:'G3'},{n:'A3'},{n:'B3'},{n:'C4'},{n:'D4'},{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'B4'},{n:'C5'},{n:'D5'},{n:'E5'},{n:'D5'},{n:'C5'},{n:'B4'},{n:'Bb4'},{n:'C5'},{n:'D5'},{n:'Eb5'},{n:'F5'},{n:'Eb5'},{n:'D5'},{n:'C5'},{n:'B4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'C4'},{n:'G3'},{n:'A3'},{n:'B3'},{n:'C4'},{n:'D4'},{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'C4'},{n:'B3'},{n:'A3'},{n:'G3'}];
+const WIND=[{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'Bb4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'Bb4'},{n:'C5'},{n:'D5'},{n:'Eb5'},{n:'D5'},{n:'C5'},{n:'Bb4'},{n:'C5'},{n:'D5'},{n:'Eb5'},{n:'F5'},{n:'G5'},{n:'F5'},{n:'Eb5'},{n:'D5'},{n:'Eb5'},{n:'F5'},{n:'G5'},{n:'Ab5'},{n:'G5'},{n:'F5'},{n:'Eb5'},{n:'D5'},{n:'C5'},{n:'Bb4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'Eb4'},{n:'D4'},{n:'Eb4'},{n:'F4'},{n:'G4'},{n:'Bb4'},{n:'C5'},{n:'Bb4'},{n:'G4'},{n:'F4'},{n:'Eb4'},{n:'D4'},{n:'C4'},{n:'Bb3'},{n:'Ab3'},{n:'Bb3'},{n:'C4'},{n:'Eb4'},{n:'F4'},{n:'G4'},{n:'Ab4'},{n:'Bb4'},{n:'C5'},{n:'Bb4'},{n:'Ab4'},{n:'G4'}];
+let timers=[],playing=false,playTempo=80;
+function updateTempo(v){playTempo=parseInt(v);document.getElementById('tempoVal').textContent=v;}
+function clearTimers(){timers.forEach(t=>clearTimeout(t));timers=[];}
+function stopPlay(){clearTimers();playing=false;document.getElementById('playBtn').textContent='▶ Full Etude';document.getElementById('pbFill').style.width='0%';document.getElementById('playStatus').textContent='Stopped';}
+function scheduleSeq(seq,label){gc();const e=(60/playTempo)*.5*1000,d=(60/playTempo)*.5*.88,total=seq.length;document.getElementById('playStatus').textContent='Playing: '+label;seq.forEach((note,i)=>{const tid=setTimeout(()=>{playNote(note.n,d);flashBar(note.n);document.getElementById('pbFill').style.width=((i+1)/total*100)+'%';if(i===total-1){setTimeout(()=>{playing=false;document.getElementById('playBtn').textContent='▶ Full Etude';document.getElementById('playStatus').textContent='Done · '+label;},d*1000+400);}},i*e);timers.push(tid);});}
+function togglePlay(){if(playing){stopPlay();return;}unlockAudio();playing=true;document.getElementById('playBtn').textContent='■ Stop';scheduleSeq([...CONCERT,{n:'C4'},{n:'C4'},...SYM,{n:'G3'},{n:'G3'},...WIND],'Full Etude');}
+function playSection(s){stopPlay();unlockAudio();playing=true;document.getElementById('playBtn').textContent='■ Stop';if(s==='concert')scheduleSeq(CONCERT,'Concert Band');else if(s==='sym')scheduleSeq(SYM,'Symphonic Band');else scheduleSeq(WIND,'Wind Ensemble');}
+function buildRow(seq,rowId,rIdxs=[]){const row=document.getElementById(rowId);let beat=0,m=1;seq.forEach((note,i)=>{if(beat===0){const bl=document.createElement('span');bl.className='bl';bl.textContent='|';const mn=document.createElement('span');mn.style.cssText='font-size:.44rem;color:var(--text3);margin:0 .06rem;';mn.textContent=m;row.append(bl,mn);m++;}const chip=document.createElement('div');chip.className='nc';chip.onclick=()=>{unlockAudio();playNote(note.n,.4);flashBar(note.n);};const p=document.createElement('span');p.className='p';p.textContent=note.n;const d=document.createElement('span');d.className='d';d.textContent='♪';chip.append(p,d);row.appendChild(chip);if(rIdxs.includes(i)){const r=document.createElement('span');r.className='r-mark';r.textContent='R';row.appendChild(r);}beat++;if(beat>=8)beat=0;});const bl=document.createElement('span');bl.className='bl';bl.textContent='||';row.appendChild(bl);}
+
+// ═══════ SCALES ═══════
+const SCALES={'C':{notes:['C4','D4','E4','F4','G4','A4','B4','C5'],sigs:'No flats'},'F':{notes:['F4','G4','A4','Bb4','C5','D5','E5','F5'],sigs:'1♭: Bb'},'Bb':{notes:['Bb3','C4','D4','Eb4','F4','G4','A4','Bb4'],sigs:'2♭: Bb,Eb'},'Eb':{notes:['Eb4','F4','G4','Ab4','Bb4','C5','D5','Eb5'],sigs:'3♭: Bb,Eb,Ab'},'Ab':{notes:['Ab3','Bb3','C4','Db4','Eb4','F4','G4','Ab4'],sigs:'4♭: Bb,Eb,Ab,Db'},'Db':{notes:['Db4','Eb4','F4','Gb4','Ab4','Bb4','C5','Db5'],sigs:'5♭'},'Gb':{notes:['Gb3','Ab3','Bb3','C4','Db4','Eb4','F4','Gb4'],sigs:'6♭'}};
+let scalePlays=0,scaleMastered=new Set();
+function buildScales(){const g=document.getElementById('scalesGrid');Object.entries(SCALES).forEach(([key,def])=>{const c=document.createElement('div');c.className='sc-card';c.id='sc-'+key;c.innerHTML=`<div class="sc-name">${key}</div><div class="sc-info">${def.sigs}<br><span style="color:var(--accent);font-size:.48rem">▶ play</span></div>`;c.onclick=()=>{unlockAudio();document.querySelectorAll('.sc-card').forEach(x=>x.classList.remove('active-scale'));c.classList.add('active-scale');playScaleAudio(key);scalePlays++;document.getElementById('statScales').textContent=scalePlays;saveAll();};g.appendChild(c);});buildScaleMastery();}
+function buildScaleMastery(){const g=document.getElementById('scaleMasteryGrid');g.innerHTML='';Object.keys(SCALES).forEach(key=>{const c=document.createElement('div');c.style.cssText=`aspect-ratio:1;border-radius:6px;background:${scaleMastered.has(key)?'rgba(74,222,128,.22)':'var(--border)'};border:1px solid ${scaleMastered.has(key)?'rgba(74,222,128,.45)':'transparent'};display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.68rem;cursor:pointer;transition:all .18s;`;c.innerHTML=`<div style="font-family:'Syne',sans-serif;font-weight:700;color:${scaleMastered.has(key)?'var(--green)':'var(--text2)'}">${key}</div><div style="font-size:.42rem;color:var(--text3)">${scaleMastered.has(key)?'✓':'○'}</div>`;c.onclick=()=>{if(scaleMastered.has(key))scaleMastered.delete(key);else{scaleMastered.add(key);showToast(`${key} major memorized! 🎉`);}buildScaleMastery();saveAll();};g.appendChild(c);});}
+function playScaleAudio(key){stopPlay();unlockAudio();playing=true;const def=SCALES[key],e=(60/playTempo)*.5*1000,d=(60/playTempo)*.5*.88;def.notes.forEach((n,i)=>{const tid=setTimeout(()=>{playNote(n,d);flashBar(n);if(i===def.notes.length-1){setTimeout(()=>{playing=false;},d*1000+300);}},i*e);timers.push(tid);});showToast('Playing '+key+' major');}
+
+// ═══════ RUDIMENTS ═══════
+const RUDIMENTS=[{name:'Single Stroke Roll',pattern:'R L R L R L R L',level:'foundation'},{name:'Double Stroke Roll',pattern:'R R L L R R L L',level:'foundation'},{name:'Single Paradiddle',pattern:'R L R R | L R L L',level:'foundation'},{name:'Double Paradiddle',pattern:'R L R L R R | L R L R L L',level:'intermediate'},{name:'Flam',pattern:'lR | rL',level:'foundation'},{name:'Flam Accent',pattern:'lR L R | rL R L',level:'7th grade ★'},{name:'Flam Tap',pattern:'lR R | rL L',level:'7th grade ★'},{name:'Five-Stroke Roll',pattern:'R R L L R',level:'intermediate'},{name:'Seven-Stroke Roll',pattern:'R R L L R R L',level:'intermediate'},{name:'Nine-Stroke Roll',pattern:'R R L L R R L L R',level:'intermediate'},{name:'Flamacue',pattern:'lR L R L rL R L R',level:'advanced'},{name:'Single Drag Tap',pattern:'rrL R | llR L',level:'region req'}];
+let masteredRuds=new Set();
+function buildRudiments(){const g=document.getElementById('rudGrid');g.innerHTML='';RUDIMENTS.forEach((rud,i)=>{const c=document.createElement('div');c.className='rud-card'+(masteredRuds.has(i)?' mastered':'');c.innerHTML=`<div class="rud-name">${rud.name}</div><div class="rud-pattern">${rud.pattern}</div><div class="rud-status">${masteredRuds.has(i)?'<span style="color:var(--green)">✅ Mastered</span>':'<span style="color:var(--text2)">○ Tap to mark</span>'}</div><div style="font-size:.48rem;color:var(--purple);margin-top:.2rem">${rud.level}</div>`;c.onclick=()=>{if(masteredRuds.has(i))masteredRuds.delete(i);else{masteredRuds.add(i);showToast(rud.name+' mastered! 🎉');}buildRudiments();document.getElementById('statRuds').textContent=masteredRuds.size;saveAll();};g.appendChild(c);});}
+
+// ═══════ METRONOME ═══════
+let metroInt=null,metroBPM=80,metroBeats=4,metroCur=0,tapTimes=[];
+function buildMetroBeatRow(){const r=document.getElementById('metroBeatRow');r.innerHTML='';for(let i=0;i<metroBeats;i++){const d=document.createElement('div');d.className='metro-beat';d.id='mb-'+i;r.appendChild(d);}}
+function setMetroBPM(v){metroBPM=Math.max(30,Math.min(220,v));document.getElementById('metroBPM').textContent=metroBPM;document.getElementById('metroSlider').value=metroBPM;if(metroInt){stopMetro();startMetro();}}
+function adjBPM(d){setMetroBPM(metroBPM+d);}
+function setTimeSig(b){metroBeats=b;['44','34','24','68'].forEach(s=>{const el=document.getElementById('sig'+s);if(el)el.classList.remove('active');});const map={4:'44',3:'34',2:'24',6:'68'};if(map[b])document.getElementById('sig'+map[b]).classList.add('active');buildMetroBeatRow();if(metroInt){stopMetro();startMetro();}}
+function startMetro(){
+  if(metroInt) stopMetro();
+  // unlockAudio must already have been called by the button click handler
+  // (the metro-btn-start onclick calls unlockAudio() before startMetro())
+  const c = gc();
+  if(!c){ showToast('Tap anywhere first to enable audio'); return; }
+  metroCur = 0;
+  const intervalMs = 60000 / metroBPM;
+  // Fire first beat immediately
+  _metroBeat();
+  metroInt = setInterval(_metroBeat, intervalMs);
+}
+function _metroBeat(){
+  // Visual
+  document.querySelectorAll('.metro-beat').forEach(b=>b.classList.remove('active'));
+  const el = document.getElementById('mb-'+metroCur);
+  if(el) el.classList.add('active');
+  // Sound — simple direct call, no scheduling needed
+  scheduleClick(metroCur===0);
+  metroCur = (metroCur+1) % metroBeats;
+}
+function stopMetro(){if(metroInt){clearInterval(metroInt);metroInt=null;}document.querySelectorAll('.metro-beat').forEach(b=>b.classList.remove('active'));}
+function tapTempo(){unlockAudio();const now=Date.now();tapTimes.push(now);if(tapTimes.length>8)tapTimes.shift();if(tapTimes.length>=2){const gaps=[];for(let i=1;i<tapTimes.length;i++)gaps.push(tapTimes[i]-tapTimes[i-1]);setMetroBPM(Math.round(60000/(gaps.reduce((a,b)=>a+b,0)/gaps.length)));}const btn=document.getElementById('tapBtn');btn.style.background='var(--accent2)';btn.style.color='#0a0f1e';setTimeout(()=>{btn.style.background='';btn.style.color='';},100);}
+
+// ═══════ SNARE ═══════
+let hitCount=0,stickIdx=0;const stickSeq=['R','L','R','L'];
+const SNARE_PATS=[{name:'Basic',pattern:'R L R L\nR L R L',desc:'Strict alternation — the foundation'},{name:'Paradiddle',pattern:'R L R R\nL R L L',desc:'4-note groupings'},{name:'Flam Accent',pattern:'lR L R\nrL R L',desc:'7th grade focus'},{name:'Double Stroke',pattern:'R R L L\nR R L L',desc:'Bounce technique'},{name:'Lesson 25',pattern:'R L R R L\nL R L L R',desc:'Frisco ISD 7th grade'},{name:'5-Stroke Roll',pattern:'R R L L R\n| |\nL L R R L',desc:'Roll on accent'}];
+function hitSnare(type){unlockAudio();playSnareHit(type);hitCount++;document.getElementById('hitCount').textContent=hitCount;document.getElementById('stickingDisplay').textContent=stickSeq.map((x,i)=>i===stickIdx%stickSeq.length?`[${x}]`:x).join(' · ');stickIdx++;const el=document.getElementById('drumHead');el.style.opacity='.7';setTimeout(()=>el.style.opacity='1',75);}
+function buildSnarePatterns(){const row=document.getElementById('snarePatternRow');SNARE_PATS.forEach((p,i)=>{const btn=document.createElement('button');btn.className='spat-btn';btn.textContent=p.name;btn.onclick=()=>{document.querySelectorAll('.spat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById('patternDisplay').textContent=p.pattern+'\n\n'+p.desc;};row.appendChild(btn);});}
+
+// ═══════ TIMER ═══════
+const ROUTINES={short:[{name:'Scales',dur:5*60,icon:'🎼'},{name:'Mallet Etude',dur:10*60,icon:'🎹'},{name:'Run-Through',dur:5*60,icon:'🏁'}],full:[{name:'Scales',dur:7*60,icon:'🎼'},{name:'Concert Band',dur:8*60,icon:'🎹'},{name:'Symphonic Band',dur:8*60,icon:'🎹'},{name:'Wind Ensemble',dur:7*60,icon:'🎹'},{name:'Run-Through',dur:5*60,icon:'🏁'}],audition:[{name:'All 7 Scales',dur:10*60,icon:'🎼'},{name:'Snare Rudiments',dur:8*60,icon:'🥁'},{name:'Concert Band',dur:8*60,icon:'🎹'},{name:'Symphonic Band',dur:8*60,icon:'🎹'},{name:'Wind Ensemble',dur:8*60,icon:'🎹'},{name:'Sight-Reading Drill',dur:5*60,icon:'👁️'},{name:'Full Run-Through',dur:6*60,icon:'🏁'}]};
+let timerInt=null,timerPhase=0,timerLeft=0,curRoutine='full';
+function setRoutine(n){curRoutine=n;timerPhase=0;renderPhases();timerLeft=ROUTINES[n][0].dur;updateTimerDisplay();document.getElementById('timerPhase').textContent=ROUTINES[n][0].icon+' '+ROUTINES[n][0].name;}
+function renderPhases(){const list=document.getElementById('phaseList');list.innerHTML='';ROUTINES[curRoutine].forEach((ph,i)=>{const li=document.createElement('li');li.className='phase-item'+(i===timerPhase?' active-phase':i<timerPhase?' done-phase':'');li.innerHTML=`<div class="phase-dot"></div><div class="phase-name">${ph.icon} ${ph.name}</div><div class="phase-dur">${Math.floor(ph.dur/60)} min</div>`;list.appendChild(li);});}
+function updateTimerDisplay(){const m=Math.floor(timerLeft/60),s=timerLeft%60,ts=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;document.getElementById('timerDisplay').textContent=ts;document.getElementById('timerInner').textContent=ts;const ph=ROUTINES[curRoutine][timerPhase];if(ph){const offset=314-(1-(timerLeft/ph.dur))*314;document.getElementById('ringFill').style.strokeDashoffset=offset;document.getElementById('timerInnerLabel').textContent=ph.name.split(' ')[0].toLowerCase();}}
+function startTimer(){if(timerInt){clearInterval(timerInt);timerInt=null;document.getElementById('timerStartBtn').textContent='▶ Start';return;}if(timerLeft<=0){timerPhase=0;timerLeft=ROUTINES[curRoutine][0].dur;renderPhases();}document.getElementById('timerStartBtn').textContent='⏸ Pause';timerInt=setInterval(()=>{timerLeft--;updateTimerDisplay();if(timerLeft<=0){const phases=ROUTINES[curRoutine];timerPhase++;if(timerPhase>=phases.length){clearInterval(timerInt);timerInt=null;document.getElementById('timerStartBtn').textContent='▶ Start';showToast('Practice complete! Great work! 🎉');logPracticeSession();document.getElementById('timerPhase').textContent='✅ COMPLETE!';}else{timerLeft=phases[timerPhase].dur;document.getElementById('timerPhase').textContent=phases[timerPhase].icon+' '+phases[timerPhase].name;playClick(true);renderPhases();}}},1000);}
+function stopTimer(){clearInterval(timerInt);timerInt=null;document.getElementById('timerStartBtn').textContent='▶ Start';timerPhase=0;setRoutine(curRoutine);}
+function skipPhase(){const phases=ROUTINES[curRoutine];timerPhase++;if(timerPhase>=phases.length){stopTimer();return;}timerLeft=phases[timerPhase].dur;document.getElementById('timerPhase').textContent=phases[timerPhase].icon+' '+phases[timerPhase].name;renderPhases();updateTimerDisplay();}
+
+// ═══════ SIGHT READING ═══════
+let srDiff=1,srPattern=[],srTapped=[],srCorrect=0,srTotal=0;
+const RSYMS={q:'♩',e:'♪',h:'𝅗𝅥',de:'♩.',r:'𝄽'};
+function setSRDiff(d){srDiff=d;document.querySelectorAll('.diff-btn').forEach(b=>b.classList.remove('active'));document.getElementById('diff'+d).classList.add('active');}
+function generateSRPattern(){const pools={1:['q','q','q','q','e','e','q'],2:['e','e','e','e','q','de','e'],3:['e','e','de','e','q','r','e','e']};const pool=pools[srDiff];srPattern=[];for(let i=0;i<6+srDiff*3;i++)srPattern.push(pool[Math.floor(Math.random()*pool.length)]);srTapped=new Array(srPattern.length).fill(false);const disp=document.getElementById('srDisplay');disp.innerHTML='';const row=document.createElement('div');row.className='rhythm-pattern';srPattern.forEach((sym,i)=>{const span=document.createElement('span');span.className='note-sym';span.id='srn-'+i;span.textContent=(RSYMS[sym]||'♩')+' ';span.onclick=()=>{unlockAudio();span.classList.toggle('tapped');srTapped[i]=!srTapped[i];};row.appendChild(span);if((i+1)%4===0&&i<srPattern.length-1){const bar=document.createElement('span');bar.style.cssText='font-size:.7rem;color:var(--text3);margin:0 .15rem;';bar.textContent=' | ';row.appendChild(bar);}});disp.appendChild(row);document.getElementById('srFeedback').style.display='none';}
+function playSRPattern(){unlockAudio();gc();srPattern.forEach((sym,i)=>{const n=sym==='r'?null:'C4',d=sym.includes('h')?.6:sym.includes('d')?.45:.3;if(n)setTimeout(()=>{playNote(n,d);const el=document.getElementById('srn-'+i);if(el){el.style.color='var(--accent)';setTimeout(()=>el.style.color='',300);}},i*380);});}
+function checkSR(){const correct=srTapped.filter(Boolean).length,total=srPattern.length,pct=Math.round(correct/total*100);srCorrect+=correct;srTotal+=total;document.getElementById('srScore').textContent=srCorrect+' / '+srTotal;const fb=document.getElementById('srFeedback');fb.style.display='block';if(pct>=80){fb.className='sr-feedback sr-correct';fb.textContent='Great job! '+correct+'/'+total+' ('+pct+'%) 🎉';}else{fb.className='sr-feedback sr-wrong';fb.textContent='Keep practicing! '+correct+'/'+total+' ('+pct+'%) — try again!';}}
+
+// ═══════ TEACHER NOTES ═══════
+let teacherNotes=[];
+function addNote(){const txt=document.getElementById('newNoteText').value.trim();if(!txt)return;const now=new Date();teacherNotes.unshift({text:txt,date:now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),id:Date.now()});document.getElementById('newNoteText').value='';renderNotes();saveAll();showToast('Note saved! 📝');}
+function renderNotes(){const list=document.getElementById('notesList');if(!teacherNotes.length){list.innerHTML='<div style="font-size:.74rem;color:var(--text2);padding:.9rem 0;text-align:center">No notes yet. Write down what your teacher tells you!</div>';return;}list.innerHTML=teacherNotes.map(n=>`<li class="note-item"><span class="note-date-badge">${n.date}</span><span class="note-text">${n.text}</span><button class="note-delete" onclick="deleteNote(${n.id})">✕</button></li>`).join('');}
+function deleteNote(id){teacherNotes=teacherNotes.filter(n=>n.id!==id);renderNotes();saveAll();}
+function saveToNotes(){const txt=document.getElementById('analysisText').textContent;if(!txt)return;teacherNotes.unshift({text:'AI: '+txt.slice(0,200)+'...',date:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),id:Date.now()});renderNotes();saveAll();showToast('Saved to Teacher Notes!');}
+
+// ═══════ CHECKLIST ═══════
+const CHECKLIST=[{cat:'Uniform',items:['Black dress pants (no jeans!)','Black dress shirt — button-up, sleeves to elbow','Black closed-toe flat dress shoes','Long black dress socks or stockings','No colorful accessories visible']},{cat:'Instrument & Gear',items:['Marimba mallets (2 pairs minimum)','Snare sticks','Music binder with all music','Pencil in folder','All equipment packed']},{cat:'Logistics',items:['Arrive at call time (check email!)','Know performance order','Phone silenced','Parent knows pick-up time']}];
+let checkStates={};
+function buildChecklist(){const c=document.getElementById('checklistContainer');c.innerHTML='';let total=0,checked=0;CHECKLIST.forEach(sec=>{const cat=document.createElement('div');cat.className='check-category';cat.textContent=sec.cat;c.appendChild(cat);sec.items.forEach((item,i)=>{total++;const key=sec.cat+i;if(!checkStates[key])checkStates[key]=false;if(checkStates[key])checked++;const div=document.createElement('div');div.className='check-item'+(checkStates[key]?' checked':'');div.innerHTML=`<div class="check-box">${checkStates[key]?'✓':''}</div><div class="check-label">${item}</div>`;div.onclick=()=>{checkStates[key]=!checkStates[key];buildChecklist();saveAll();};c.appendChild(div);});});const pct=Math.round(checked/total*100);const st=document.getElementById('checklistStatus');st.style.background=pct===100?'rgba(74,222,128,.1)':'rgba(245,166,35,.05)';st.style.border=`1px solid ${pct===100?'rgba(74,222,128,.3)':'rgba(245,166,35,.2)'}`;st.style.color=pct===100?'var(--green)':'var(--accent)';st.textContent=pct===100?'✅ All checked! Ready for the concert! 🎉':`${checked}/${total} items (${pct}%)`;}
+function resetChecklist(){checkStates={};buildChecklist();saveAll();}
+
+// ═══════ GLOSSARY ═══════
+const GLOSSARY=[{term:'Presto',cat:'tempo',def:'Very fast, typically 168-200 BPM. Your mallet etude is marked Presto.'},{term:'Allegro',cat:'tempo',def:'Fast and lively, typically 120-156 BPM.'},{term:'Andante',cat:'tempo',def:'Walking pace, typically 76-108 BPM.'},{term:'Accelerando (accel.)',cat:'tempo',def:'Gradually get faster.'},{term:'Ritardando (rit.)',cat:'tempo',def:'Gradually slow down.'},{term:'Forte (f)',cat:'dynamics',def:'Loud. Big rebound strokes (~7-8 inches).'},{term:'Mezzo-forte (mf)',cat:'dynamics',def:'Medium-loud. Most common dynamic in your etude.'},{term:'Piano (p)',cat:'dynamics',def:'Soft. Small controlled strokes (~2 inches).'},{term:'Pianissimo (pp)',cat:'dynamics',def:'Very soft. Barely touching the bar.'},{term:'Crescendo',cat:'dynamics',def:'Gradually get louder. Hairpin opening right.'},{term:'Decrescendo',cat:'dynamics',def:'Gradually get softer. Hairpin closing right.'},{term:'Sforzando (sfz)',cat:'dynamics',def:'Sudden strong accent on one note.'},{term:'Dal Segno (D.S.)',cat:'navigation',def:'Go back to the sign 𝄋 and repeat from there.'},{term:'Da Capo (D.C.)',cat:'navigation',def:'Go back to the very beginning and repeat.'},{term:'Coda ⊕',cat:'navigation',def:'Jump to the ending section marked with the coda symbol.'},{term:'Fine',cat:'navigation',def:'The end. D.C. al Fine = play until Fine.'},{term:'Repeat Signs',cat:'navigation',def:'Dots before a double barline = play that section again.'},{term:'Fermata 𝄐',cat:'notation',def:'Hold this note longer than written. Length is up to the conductor.'},{term:'Staccato',cat:'notation',def:'Play notes short and detached.'},{term:'Accent (>)',cat:'notation',def:'Play this note louder and with more emphasis.'},{term:'Slur',cat:'notation',def:'Curved line = play notes connected and smooth.'},{term:'Tie',cat:'notation',def:'Connects two SAME notes = add the values, play once.'},{term:'8va',cat:'notation',def:'Play one octave higher than written.'},{term:'Time Signature',cat:'theory',def:'Top = beats per measure. Bottom = what note gets one beat (4 = quarter note).'},{term:'Key Signature',cat:'theory',def:'Flats/sharps at the start of each line. Apply to the whole piece.'},{term:'Chromatic Scale',cat:'theory',def:'Every half-step in order. Every key on the keyboard.'},{term:'Circle of Fourths',cat:'theory',def:'C → F → Bb → Eb → Ab → Db → Gb. Your audition scale sequence — each step adds one flat.'},{term:'Enharmonic',cat:'theory',def:'Same pitch, different name. Db = C#, Gb = F#, Bb = A#.'},{term:'Rebound Stroke',cat:'technique',def:'Correct marimba stroke: raise mallet, drop onto bar, let it bounce back. Never press.'},{term:'Alternating Strokes',cat:'technique',def:'R-L-R-L — always alternate hands in a scale run. Never same hand twice in a row.'},{term:'Flam',cat:'technique',def:'Grace note played just before the main stroke.'},{term:'Roll',cat:'technique',def:'Rapid alternating strokes to sustain a note. Marimba = double-stroke roll.'},{term:'UIL',cat:'events',def:'University Interscholastic League — Texas school competition. Your band performs and sight-reads each spring.'},{term:'TMEA',cat:'events',def:'Texas Music Educators Association. Runs All-State auditions.'},{term:'All-Region',cat:'events',def:'Honor band from the best players in your region. Auditions in fall.'},{term:'Sight-Reading',cat:'events',def:'Playing music you have NEVER seen before. 30 seconds to look, then play cold.'},{term:'Etude',cat:'music',def:'A study piece designed to build a specific technique.'},{term:'Quarter Note ♩',cat:'music',def:'Gets one beat in 4/4 time. At ♩=80, one quarter = 0.75 seconds.'},{term:'Eighth Note ♪',cat:'music',def:'Half a beat. Two per beat. Your etude is written in 8th notes.'},{term:'Sixteenth Note',cat:'music',def:'Quarter of a beat. Four per beat. Much faster than 8th notes.'}];
+function buildGlossary(){renderGloss(GLOSSARY,document.getElementById('glossList'));}
+function renderGloss(items,c){c.innerHTML=items.map(g=>`<div class="gloss-item" onclick="this.classList.toggle('open')"><div class="gloss-term"><span>${g.term}</span><div style="display:flex;align-items:center;gap:.4rem"><span class="gloss-category">${g.cat}</span><span class="gloss-chevron">▶</span></div></div><div class="gloss-def">${g.def}</div></div>`).join('');}
+function filterGloss(q){const f=GLOSSARY.filter(g=>g.term.toLowerCase().includes(q.toLowerCase())||g.def.toLowerCase().includes(q.toLowerCase())||g.cat.toLowerCase().includes(q.toLowerCase()));renderGloss(f,document.getElementById('glossList'));}
+
+// ═══════ LESSONS ═══════
+const LESSONS=[{icon:'🎵',title:'8th Notes at ♩=80',body:`Two notes per beat, every beat. Count: "1-and-2-and-3-and-4-and"<br><div class="mono-pre">Beat: 1  +  2  +  3  +  4  +
+Hand: R  L  R  L  R  L  R  L</div>Start at ♩=60 on the metronome. Add 5 BPM each day when clean.`},{icon:'↩️',title:'Rebound Stroke — Goal #2',body:`Raise mallet 4-5". Drop it. Let it bounce back like a basketball.<br><div class="mono-pre">GOOD: Raise → Drop → Bounce ✓
+BAD:  Raise → Drop → Press  ✗</div>Volume = stroke height: p ≈ 2" · mf ≈ 5" · f ≈ 8"`},{icon:'🤝',title:'Alternating Strokes R-L',body:`Never same hand twice in a row during a scale run.<br><div class="mono-pre">CORRECT:  R L R L R L R L ✓
+WRONG:    R R L R L R R L ✗</div>If a passage feels awkward, flip your starting hand.`},{icon:'🖤',title:'Playing the Black Bars',body:`Black bars = Bb, Eb, Ab, Db, Gb. Rotate wrist inward — don't dip your whole elbow.<br><div class="mono-pre">[Db][Eb]   [Gb][Ab][Bb]
+[C][D][E][F][G][A][B][C]</div>Practice Bb4→C5→D5→Eb5→F5 at ♩=50 before adding to full etude.`},{icon:'🚫',title:'"No Stopping" — Goal #3',body:`The most important audition skill. Judges care MORE about rhythm continuity than perfect notes.<br><br>1. Play at 60 BPM — miss a note? KEEP GOING<br>2. Circle the measure where you stumbled<br>3. Fix it at 50 BPM, then reconnect<br>4. Add 5 BPM per session<br><br><b>Record yourself on your phone!</b>`},{icon:'👁️',title:'Sight-Reading Strategy',body:`UIL and Region both test sight-reading on snare AND mallets.<br><br><b>You get 30 seconds to look:</b><br>1. Check time signature<br>2. Check key signature (what flats?)<br>3. Find the hardest measure<br>4. Clap rhythm silently in your lap<br><br>Use the Sight-Reading Trainer tab daily — 5 minutes builds this skill fast.`},{icon:'🥁',title:'Snare + Region Audition',body:`Region auditions: mallets, snare, AND sight-reading on both.<br><br><b>Priority snare list:</b><br>1. Single stroke roll<br>2. Double stroke roll (bounce technique)<br>3. Paradiddle — R L R R | L R L L<br>4. Flam Accent (7th grade focus) — lR L R | rL R L<br>5. Single Drag Tap (Region required) — rrL R | llR L`},{icon:'🏆',title:'UIL & Frisco ISD Events',body:`<b>UIL (Spring):</b> 3 pieces + sight-reading. Graded. Required. Formal uniform.<br><b>Region (Fall):</b> Mallets, snare, timpani. 7th grade encouraged.<br><b>All-State:</b> Masterworks for Mallets (Gottlieb) + Intermediate Snare Drum Studies (Peters).<br><b>Summer Camp:</b> June 1-4, 2026 at Memorial HS or Emerson HS.`}];
+function buildLessons(){const c=document.getElementById('lessonsContainer');LESSONS.forEach(l=>{const card=document.createElement('div');card.className='lesson-card';card.innerHTML=`<div class="lesson-top"><div class="lesson-title">${l.icon} ${l.title}</div><div class="lesson-chevron">▶</div></div><div class="lesson-body">${l.body}</div>`;card.onclick=()=>card.classList.toggle('open');c.appendChild(card);});}
+
+// ═══════ PROGRESS / STREAK ═══════
+let sessionCount=0,sheetCount=0,practiceLog=[],practicedDays={};
+const today=()=>new Date().toISOString().slice(0,10);
+function markTodayPracticed(){practicedDays[today()]=true;logPracticeSession();buildWeekGrid();updateStreak();saveAll();showToast('✅ Today marked as practiced!');}
+function buildWeekGrid(){const g=document.getElementById('weekGrid');g.innerHTML='';const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const now=new Date();for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(d.getDate()-i);const key=d.toISOString().slice(0,10);const isToday=key===today();const practiced=practicedDays[key];const cell=document.createElement('div');cell.className='day-cell'+(practiced?' practiced':'')+(isToday?' today':'');cell.innerHTML=`<div class="day-name">${days[d.getDay()]}</div><div class="day-num">${d.getDate()}</div>${practiced?'<div style="font-size:.5rem">🎵</div>':''}`;g.appendChild(cell);}}
+function updateStreak(){let streak=0;const now=new Date();for(let i=0;i<365;i++){const d=new Date(now);d.setDate(d.getDate()-i);if(practicedDays[d.toISOString().slice(0,10)])streak++;else break;}document.getElementById('streakNum').textContent=streak;document.getElementById('streakChip').textContent='🔥 '+streak;document.getElementById('streakMsg').textContent=streak===0?'Start practicing to build your streak!':streak<7?`${streak} day streak — keep going!`:streak<14?`${streak} days — amazing! 🌟`:`${streak} day streak — you're a machine! 🏆`;}
+function logPracticeSession(note=''){sessionCount++;document.getElementById('statSessions').textContent=sessionCount;const now=new Date();practiceLog.unshift({icon:'✅',title:'Practice Session',note:note||'Session logged',date:now.toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})});renderLog();saveAll();}
+function addLogEntry(title,note,icon='📝'){const now=new Date();practiceLog.unshift({icon,title,note,date:now.toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})});renderLog();saveAll();}
+function renderLog(){const c=document.getElementById('logContainer');if(!practiceLog.length){c.innerHTML='<div style="font-size:.74rem;color:var(--text2);text-align:center;padding:1rem 0">No sessions logged yet!</div>';return;}c.innerHTML=practiceLog.slice(0,20).map(e=>`<div class="log-entry"><div class="log-icon">${e.icon}</div><div><div class="log-title">${e.title}</div><div class="log-date">${e.date}</div>${e.note?`<div class="log-note">${e.note}</div>`:''}</div></div>`).join('');}
+function clearProgress(){if(confirm('Clear all progress data?')){sessionCount=0;sheetCount=0;practiceLog=[];practicedDays={};document.getElementById('statSessions').textContent='0';document.getElementById('statSheets').textContent='0';renderLog();buildWeekGrid();updateStreak();saveAll();showToast('Progress cleared.');}}
+const MILESTONES=[{icon:'🎹',text:'Concert Band etude clean at ♩=80',done:false},{icon:'🎹',text:'Symphonic Band etude clean at ♩=80',done:false},{icon:'🎹',text:'Wind Ensemble etude clean at ♩=80',done:false},{icon:'🎼',text:'C and F major scales from memory',done:false},{icon:'🎼',text:'All 7 flat scales from memory',done:false},{icon:'🥁',text:'Single Stroke Roll mastered',done:false},{icon:'🥁',text:'Flam Accent mastered',done:false},{icon:'🥁',text:'Single Drag Tap mastered (Region)',done:false},{icon:'👁️',text:'3 sight-reading patterns correct in a row',done:false},{icon:'🏆',text:'No-stop full run-through at ♩=80',done:false},{icon:'🏆',text:'Concert checklist 100% complete',done:false}];
+function buildMilestones(){const c=document.getElementById('milestonesContainer');c.innerHTML='';MILESTONES.forEach((m,i)=>{const div=document.createElement('div');div.className='routine-item';div.style.cursor='pointer';div.innerHTML=`<div class="routine-num" style="background:${m.done?'var(--green)':'var(--border)'};color:${m.done?'#0a0f1e':'var(--text2)'};font-size:.72rem">${m.done?'✓':(i+1)}</div><div class="routine-text" style="color:${m.done?'var(--green)':'var(--text)'}">${m.icon} ${m.text}</div>`;div.onclick=()=>{m.done=!m.done;if(m.done)showToast('Milestone unlocked! 🏆');buildMilestones();saveAll();};c.appendChild(div);});}
+
+// ═══════ UPLOAD + AI ═══════
+let uploadedB64=null;
+function handleFile(e){const f=e.target.files[0];if(f)processImg(f);}
+function handleDrop(e){e.preventDefault();document.getElementById('uploadHero').classList.remove('dragover');const f=e.dataTransfer.files[0];if(f&&f.type.startsWith('image/'))processImg(f);}
+function processImg(file){const r=new FileReader();r.onload=(e)=>{uploadedB64=e.target.result.split(',')[1];const pr=document.getElementById('uploadPreview');pr.src=e.target.result;pr.classList.add('show');document.getElementById('uploadHero').classList.add('has-image');document.getElementById('uploadIcon').textContent='✅';document.getElementById('uploadTitle').textContent='Sheet Uploaded!';document.getElementById('uploadSub').textContent='Fill in the details below, then tap Analyze.';document.getElementById('customizePanel').style.display='block';sheetCount++;document.getElementById('statSheets').textContent=sheetCount;saveAll();showToast('Sheet uploaded!');document.getElementById('customizePanel').scrollIntoView({behavior:'smooth',block:'nearest'});};r.readAsDataURL(file);}
+async function analyzeSheet(){if(!uploadedB64){showToast('Please upload a sheet music photo first!');return;}const name=document.getElementById('cName').value||'this piece',tmpo=document.getElementById('cTempo').value||'80',inst=document.getElementById('cInstrument').value,lvl=document.getElementById('cLevel').value,instr=document.getElementById('cInstructions').value,nt=document.getElementById('cNoteType').value,foc=document.getElementById('cFocus').value;const aEl=document.getElementById('analysisResult'),tEl=document.getElementById('analysisText'),sp=document.getElementById('aiSpinner'),acEl=document.getElementById('analysisActions');aEl.classList.add('show');sp.style.display='inline-block';acEl.style.display='none';tEl.innerHTML='<span class="thinking-dots">Analyzing<span>.</span><span>.</span><span>.</span></span>';aEl.scrollIntoView({behavior:'smooth',block:'nearest'});const sys=`You are Azlan's personal percussion coach for Scoggins Band (Frisco ISD, 7th grade, Seahawks). Analyze sheet music photos and give clear, encouraging, age-appropriate coaching. Format:\n1. WHAT I SEE (2-3 sentences)\n2. KEY FOCUS AREAS (3 numbered things)\n3. TECHNIQUE TIPS (2-3 tips)\n4. DAILY DRILL (5-min drill for this piece)\n5. ENCOURAGEMENT (one upbeat sentence)\nUnder 300 words. Simple language. Enthusiastic!`;const msg=`Piece: ${name} · Instrument: ${inst} · Level: ${lvl} · Tempo: ♩=${tmpo} · Notes: ${nt} · Focus: ${foc} · Teacher: ${instr||'not specified'}\nAnalyze the image and give coaching for Azlan!`;try{const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:uploadedB64}},{type:'text',text:msg}]}]})});const data=await res.json();sp.style.display='none';const text=data.content?.find(b=>b.type==='text')?.text||'Could not analyze. Please try again.';tEl.textContent=text;acEl.style.display='flex';sessionCount++;document.getElementById('statSessions').textContent=sessionCount;addLogEntry('AI Analyzed: '+name,lvl+' · '+inst+' · ♩='+tmpo,'🤖');saveAll();showToast('Analysis complete!');}catch(err){sp.style.display='none';tEl.textContent=`Couldn't connect right now. Tips for ${name}:\n\n1. Start at ♩=60, build to ${tmpo}\n2. One measure at a time\n3. Rebound strokes, R-L, no stopping!\n4. Record yourself to hear what judges hear`;acEl.style.display='flex';}}
+
+// ═══════ SAVE / LOAD / SYNC ═══════
+function loadLocal(){
+  try{
+    const raw = localStorage.getItem('azlan_v2');
+    if(raw) applyPayload(JSON.parse(raw));
+  } catch(e){ console.warn('loadLocal error:', e); }
+}
+let saveTimer=null;
+function getPayload(){return{sessionCount,sheetCount,scalePlays,practicedDays,practiceLog:practiceLog.slice(0,30),teacherNotes,checkStates,scaleMastered:[...scaleMastered],masteredRuds:[...masteredRuds],milestones:MILESTONES.map(m=>m.done),listenLog:listenLog.slice(0,50)};}
+function applyPayload(d){if(!d)return;sessionCount=d.sessionCount||0;sheetCount=d.sheetCount||0;scalePlays=d.scalePlays||0;practicedDays=d.practicedDays||{};practiceLog=d.practiceLog||[];teacherNotes=d.teacherNotes||[];listenLog=d.listenLog||[];checkStates=d.checkStates||{};scaleMastered=new Set(d.scaleMastered||[]);masteredRuds=new Set((d.masteredRuds||[]).map(Number));if(d.milestones)d.milestones.forEach((done,i)=>{if(MILESTONES[i])MILESTONES[i].done=done;});refreshAll();}
+function refreshAll(){document.getElementById('statSessions').textContent=sessionCount;document.getElementById('statSheets').textContent=sheetCount;document.getElementById('statScales').textContent=scalePlays;document.getElementById('statRuds').textContent=masteredRuds.size;renderLog();renderNotes();buildChecklist();buildScaleMastery();buildRudiments();buildMilestones();buildWeekGrid();updateStreak();}
+function saveAll(){// Always save to localStorage as backup
+  try{localStorage.setItem('azlan_v2',JSON.stringify(getPayload()));}catch(e){}
+  // Debounce cloud save (500ms)
+  if(window.__cloudSave){clearTimeout(saveTimer);setSyncStatus('syncing');saveTimer=setTimeout(async()=>{await window.__cloudSave(getPayload());setSyncStatus('synced');},800);}
+}
+function setSyncStatus(s){const dot=document.getElementById('syncDot');const lbl=document.getElementById('syncLabel');dot.className='sync-dot '+s;lbl.textContent=s==='synced'?'synced':s==='syncing'?'saving...':'offline';}
+async function forceSave(){if(window.__cloudSave){setSyncStatus('syncing');await window.__cloudSave(getPayload());setSyncStatus('synced');showToast('Saved to cloud ☁️');}else showToast('Sign in to save to cloud');}
+async function forceLoad(){if(window.__cloudLoad){const d=await window.__cloudLoad();if(d){applyPayload(d);showToast('Loaded from cloud ☁️');}else showToast('No cloud data found');}else showToast('Sign in to load from cloud');}
+
+// ═══════ PIN UI ═══════
+window.__remoteLoad = (data) => { applyPayload(data); setSyncStatus('synced'); };
+
+// PIN entry state
+let pinEntry = '';
+let pinMode = 'enter'; // 'enter' | 'create'
+
+function switchPinTab(mode) {
+  pinMode = mode;
+  pinEntry = '';
+  updatePinDisplay();
+  document.getElementById('tabEnter').classList.toggle('active', mode==='enter');
+  document.getElementById('tabCreate').classList.toggle('active', mode==='create');
+  document.getElementById('pinEnterBtn').textContent = mode==='create' ? 'Create & Connect' : 'Connect';
+  document.getElementById('pinMsg').textContent = mode==='create'
+    ? 'Choose any 6 digits. Write it down — use it on every device.'
+    : 'Enter your 6-digit sync PIN.';
+  document.getElementById('pinMsg').className = 'pin-msg';
+}
+
+function pinKey(digit) {
+  unlockAudio(); // unlock on first real tap
+  if (pinEntry.length >= 6) return;
+  pinEntry += digit;
+  updatePinDisplay();
+  if (pinEntry.length === 6) document.getElementById('pinEnterBtn').disabled = false;
+}
+
+function pinDel() {
+  pinEntry = pinEntry.slice(0, -1);
+  updatePinDisplay();
+  document.getElementById('pinEnterBtn').disabled = pinEntry.length < 6;
+}
+
+function updatePinDisplay() {
+  for (let i = 0; i < 6; i++) {
+    const dot = document.getElementById('pd'+i);
+    dot.textContent = i < pinEntry.length ? pinEntry[i] : '';
+    dot.className = 'pin-dot' + (i < pinEntry.length ? ' filled' : '') + (i === pinEntry.length ? ' active-dot' : '');
+  }
+}
+
+async function submitPIN() {
+  if (pinEntry.length !== 6) return;
+  const btn = document.getElementById('pinEnterBtn');
+  const msg = document.getElementById('pinMsg');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="pin-spinner"></span>Connecting...';
+  msg.textContent = 'Connecting to sync server...';
+  msg.className = 'pin-msg';
+
+  const isNew = pinMode === 'create';
+  const ok = await window.__pinConnect(pinEntry, isNew);
+
+  if (ok) {
+    msg.textContent = isNew ? 'PIN created! Use it on every device.' : 'Connected! Loading your data...';
+    msg.className = 'pin-msg success';
+    const pin = pinEntry;
+    setTimeout(() => {
+      hidePINScreen(pin);
+    }, 900);
+  } else {
+    msg.textContent = 'Could not connect. Check your internet and try again.';
+    msg.className = 'pin-msg error';
+    btn.disabled = false;
+    btn.textContent = pinMode === 'create' ? 'Create & Connect' : 'Connect';
+  }
+}
+
+function hidePINScreen(pin) {
+  document.getElementById('pinScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+  updatePinBadge(pin);
+  // Save PIN to localStorage so next visit auto-connects
+  localStorage.setItem('azlan_saved_pin', pin);
+  showToast('Synced with PIN ' + pin.slice(0,2) + '****  ✓');
+}
+
+function showPINScreen() {
+  pinEntry = '';
+  updatePinDisplay();
+  document.getElementById('pinMsg').textContent = '';
+  document.getElementById('pinEnterBtn').disabled = true;
+  document.getElementById('pinEnterBtn').textContent = 'Connect';
+  document.getElementById('pinScreen').style.display = 'flex';
+  document.getElementById('appShell').style.display = 'none';
+}
+
+function skipPIN() {
+  unlockAudio();
+  window.__pinDisconnect && window.__pinDisconnect();
+  document.getElementById('pinScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+  updatePinBadge(null);
+  localStorage.removeItem('azlan_saved_pin');
+  loadLocal();
+  setSyncStatus('offline');
+  showToast('Running without sync. Enter a PIN to sync across devices.');
+}
+
+function updatePinBadge(pin) {
+  const badge = document.getElementById('pinBadge');
+  const menuVal = document.getElementById('menuPinVal');
+  if (pin) {
+    badge.textContent = 'PIN: ' + pin.slice(0,2) + '••••';
+    badge.style.color = 'var(--green)';
+    menuVal.textContent = pin.slice(0,2) + '••••';
+  } else {
+    badge.textContent = 'NO PIN';
+    badge.style.color = 'var(--text2)';
+    menuVal.textContent = 'not set';
+  }
+}
+
+// Auto-connect on load if a saved PIN exists
+async function tryAutoConnect() {
+  const saved = localStorage.getItem('azlan_saved_pin');
+  if (saved && saved.length === 6) {
+    document.getElementById('pinMsg') && (document.getElementById('pinMsg').textContent = 'Auto-connecting...');
+    const ok = await window.__pinConnect(saved, false);
+    if (ok) {
+      hidePINScreen(saved);
+      return true;
+    }
+  }
+  return false;
+}
+
+// ═══════ NAV ═══════
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));const pg=document.getElementById('page-'+id);if(pg){pg.classList.add('active');pg.classList.remove('fade-in');void pg.offsetWidth;pg.classList.add('fade-in');}document.querySelectorAll('.tab-btn').forEach(b=>{if(b.getAttribute('onclick')?.includes("'"+id+"'"))b.classList.add('active');});window.scrollTo({top:0,behavior:'smooth'});}
+
+// ═══════ REFERENCE RECORDINGS ═══════
+
+// ── Track definitions ──
+const REF_TRACKS = [
+  // Mallet Etude — 3 levels (in-app synthesized)
+  {
+    id:'concert', type:'synth', label:'Concert Band',
+    tag:'concert', tempo:80,
+    desc:'Opening level · mf throughout · C major · 8th notes · ♩=80',
+    seq: [{n:'C4'},{n:'D4'},{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'B4'},{n:'C5'},
+          {n:'C5'},{n:'B4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'C4'},
+          {n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},
+          {n:'G4'},{n:'A4'},{n:'B4'},{n:'C5'},{n:'B4'},{n:'A4'},{n:'G4'},{n:'C4'}]
+  },
+  {
+    id:'symphonic', type:'synth', label:'Symphonic Band',
+    tag:'sym', tempo:80,
+    desc:'Intermediate · mf→f · Wider range · Bb/Eb chromatic passages · ♩=80',
+    seq: [{n:'G3'},{n:'A3'},{n:'B3'},{n:'C4'},{n:'D4'},{n:'E4'},{n:'F4'},{n:'G4'},
+          {n:'A4'},{n:'B4'},{n:'C5'},{n:'D5'},{n:'E5'},{n:'D5'},{n:'C5'},{n:'B4'},
+          {n:'Bb4'},{n:'C5'},{n:'D5'},{n:'Eb5'},{n:'F5'},{n:'Eb5'},{n:'D5'},{n:'C5'},
+          {n:'B4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'C4'},{n:'G3'},
+          {n:'A3'},{n:'B3'},{n:'C4'},{n:'D4'},{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},
+          {n:'G4'},{n:'F4'},{n:'E4'},{n:'D4'},{n:'C4'},{n:'B3'},{n:'A3'},{n:'G3'}]
+  },
+  {
+    id:'wind', type:'synth', label:'Wind Ensemble',
+    tag:'wind', tempo:80,
+    desc:'Advanced · p→mf→f→p arc · RR double strokes · Extended flat keys · ♩=80',
+    seq: [{n:'E4'},{n:'F4'},{n:'G4'},{n:'A4'},{n:'Bb4'},{n:'A4'},{n:'G4'},{n:'F4'},
+          {n:'G4'},{n:'A4'},{n:'Bb4'},{n:'C5'},{n:'D5'},{n:'Eb5'},{n:'D5'},{n:'C5'},
+          {n:'Bb4'},{n:'C5'},{n:'D5'},{n:'Eb5'},{n:'F5'},{n:'G5'},{n:'F5'},{n:'Eb5'},
+          {n:'D5'},{n:'Eb5'},{n:'F5'},{n:'G5'},{n:'Ab5'},{n:'G5'},{n:'F5'},{n:'Eb5'},
+          {n:'D5'},{n:'C5'},{n:'Bb4'},{n:'A4'},{n:'G4'},{n:'F4'},{n:'Eb4'},{n:'D4'},
+          {n:'Eb4'},{n:'F4'},{n:'G4'},{n:'Bb4'},{n:'C5'},{n:'Bb4'},{n:'G4'},{n:'F4'},
+          {n:'Eb4'},{n:'D4'},{n:'C4'},{n:'Bb3'},{n:'Ab3'},{n:'Bb3'},{n:'C4'},{n:'Eb4'},
+          {n:'F4'},{n:'G4'},{n:'Ab4'},{n:'Bb4'},{n:'C5'},{n:'Bb4'},{n:'Ab4'},{n:'G4'}]
+  },
+];
+
+// Scale tracks
+const REF_SCALE_TRACKS = Object.entries(SCALES).map(([key, def]) => ({
+  id: 'scale_'+key, type:'scale', label: key+' Major Scale',
+  tag:'scale', tempo:80, desc: def.sigs, key: key,
+  seq: def.notes.map(n=>({n}))
+}));
+
+// YouTube reference links — legitimate free educational recordings
+const YT_LINKS = [
+  {
+    cat:'🥁 Marimba Technique',
+    links:[
+      {title:'Marimba Mallet Technique — Basic Strokes & Rebound', url:'https://www.youtube.com/results?search_query=marimba+basic+stroke+technique+rebound+beginner', desc:'Search for rebound stroke tutorials'},
+      {title:'How to Play Major Scales on Marimba', url:'https://www.youtube.com/results?search_query=marimba+major+scales+tutorial+beginner', desc:'Scale technique for beginners'},
+      {title:'Two-Mallet Marimba Technique for Beginners', url:'https://www.youtube.com/results?search_query=two+mallet+marimba+technique+middle+school', desc:'Two-mallet fundamentals'},
+    ]
+  },
+  {
+    cat:'🎼 Mallet Etude Reference',
+    links:[
+      {title:'TMEA Mallet Etude — Masterworks for Mallets (Gottlieb)', url:'https://www.youtube.com/results?search_query=masterworks+for+mallets+Gottlieb+marimba+etude', desc:'The TMEA All-State mallet book used in Frisco ISD'},
+      {title:'Masterworks for Mallets — Gigue from Suite III', url:'https://www.youtube.com/results?search_query=masterworks+mallets+gigue+suite+marimba', desc:'TMEA 2025-26 2-mallet etude reference'},
+      {title:'Intermediate Marimba Etude Performance Demo', url:'https://www.youtube.com/results?search_query=intermediate+marimba+etude+8th+note+presto+middle+school', desc:'Similar tempo and style to your etude'},
+    ]
+  },
+  {
+    cat:'🥁 Snare Drum Reference',
+    links:[
+      {title:'Snare Drum Rudiments — Complete Guide', url:'https://www.youtube.com/results?search_query=snare+drum+rudiments+flam+accent+paradiddle+tutorial', desc:'All FISD required rudiments demonstrated'},
+      {title:'Intermediate Snare Drum Studies — Mitchell Peters', url:'https://www.youtube.com/results?search_query=mitchell+peters+intermediate+snare+drum+studies', desc:'The Region/All-State snare book'},
+      {title:'Flam Accent Tutorial — Slow to Fast', url:'https://www.youtube.com/results?search_query=flam+accent+rudiment+tutorial+slow+to+fast', desc:'7th grade focus rudiment — step by step'},
+      {title:'Single Drag Tap Demo', url:'https://www.youtube.com/results?search_query=single+drag+tap+rudiment+tutorial+demo', desc:'Region audition required rudiment'},
+    ]
+  },
+  {
+    cat:'🎵 Circle of Fourths Scales',
+    links:[
+      {title:'Circle of Fourths Explained for Band Students', url:'https://www.youtube.com/results?search_query=circle+of+fourths+band+percussion+scales+explained', desc:'Why C→F→Bb→Eb→Ab→Db→Gb works'},
+      {title:'All Flat Major Scales on Marimba — C to Gb', url:'https://www.youtube.com/results?search_query=marimba+flat+major+scales+C+F+Bb+Eb+Ab+Db+Gb', desc:'Reference for memorizing all 7 flat scales'},
+    ]
+  },
+  {
+    cat:'🏆 Inspiration — Percussion Performances',
+    links:[
+      {title:'Julie Davila — Marimba Performance', url:'https://www.youtube.com/results?search_query=Julie+Davila+marimba+percussion+performance', desc:"Frisco ISD's featured percussion guest artist"},
+      {title:'Evelyn Glennie — Solo Marimba', url:'https://www.youtube.com/watch?v=8ffm2WYsatE', desc:'World-renowned marimba soloist — pure inspiration'},
+      {title:'Middle School Percussion Ensemble — Texas', url:'https://www.youtube.com/results?search_query=texas+middle+school+percussion+ensemble+performance', desc:'See what Frisco ISD percussion ensembles perform'},
+    ]
+  },
+];
+
+// ── Playback state ──
+let refCurrentTrack = null;
+let refTimers = [];
+let refPlaying = false;
+let refTempo = 80;
+let refNoteIdx = 0;
+let refTotalNotes = 0;
+let refStartTime = 0;
+let refElapsedTimer = null;
+let listenLog = [];
+
+function updateRefTempo(v){
+  refTempo=parseInt(v);
+  document.getElementById('refTempoVal').textContent=v;
+  if(refPlaying){ refStopPlayback(); refStartPlayback(); }
+}
+
+function refFormatTime(sec){
+  return Math.floor(sec/60)+':'+(String(Math.floor(sec%60)).padStart(2,'0'));
+}
+
+function refLoadTrack(track){
+  if(refPlaying) refStopPlayback();
+  refCurrentTrack = track;
+  refNoteIdx = 0;
+  refTotalNotes = track.seq ? track.seq.length : 0;
+  document.getElementById('refTrackTitle').textContent = track.label;
+  document.getElementById('refTrackMeta').textContent = track.desc;
+  document.getElementById('refPlayBtn').textContent = '▶ Play';
+  document.getElementById('refProgress').style.width = '0%';
+  document.getElementById('refCurrentTime').textContent = '0:00';
+  const totalSec = refTotalNotes * (60/refTempo) * 0.5;
+  document.getElementById('refTotalTime').textContent = refFormatTime(totalSec);
+  // Highlight active track
+  document.querySelectorAll('.ref-track-card').forEach(c=>c.classList.remove('ref-active'));
+  const el = document.getElementById('rft-'+track.id);
+  if(el){ el.classList.add('ref-active'); el.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+  showToast('Loaded: '+track.label);
+}
+
+function refToggle(){
+  if(!refCurrentTrack){ showToast('Select a track first'); return; }
+  if(refPlaying) refStopPlayback();
+  else refStartPlayback();
+}
+
+function refStartPlayback(){
+  if(!refCurrentTrack) return;
+  unlockAudio();
+  const seq = refCurrentTrack.seq;
+  if(!seq||!seq.length) return;
+  refPlaying = true;
+  refStartTime = Date.now() - (refNoteIdx * (60/refTempo) * 500);
+  document.getElementById('refPlayBtn').textContent = '⏸ Pause';
+  const eighth = (60/refTempo)*0.5*1000;
+  const dur = (60/refTempo)*0.5*0.88;
+  const total = seq.length;
+  seq.slice(refNoteIdx).forEach((note,i) => {
+    const absIdx = refNoteIdx + i;
+    const tid = setTimeout(()=>{
+      if(!refPlaying) return;
+      playNote(note.n, dur);
+      flashBar(note.n);
+      document.getElementById('refProgress').style.width = ((absIdx+1)/total*100)+'%';
+      document.getElementById('refCurrentTime').textContent = refFormatTime((absIdx+1)*(60/refTempo)*0.5);
+      if(absIdx === total-1){
+        refPlaying=false; refNoteIdx=0;
+        document.getElementById('refPlayBtn').textContent = '▶ Play';
+        document.getElementById('refProgress').style.width = '100%';
+        showToast(refCurrentTrack.label+' complete!');
+      } else {
+        refNoteIdx = absIdx+1;
+      }
+    }, i*eighth);
+    refTimers.push(tid);
+  });
+}
+
+function refStopPlayback(){
+  refTimers.forEach(t=>clearTimeout(t)); refTimers=[];
+  refPlaying=false;
+  document.getElementById('refPlayBtn').textContent = '▶ Play';
+}
+
+function refStop(){
+  refStopPlayback();
+  refNoteIdx=0;
+  document.getElementById('refProgress').style.width='0%';
+  document.getElementById('refCurrentTime').textContent='0:00';
+}
+
+function refSkip(sec){
+  if(!refCurrentTrack) return;
+  const notesPerSec = refTempo/(60*2);
+  const delta = Math.round(sec * notesPerSec);
+  refNoteIdx = Math.max(0, Math.min(refCurrentTrack.seq.length-1, refNoteIdx+delta));
+  if(refPlaying){ refStopPlayback(); refStartPlayback(); }
+  const totalSec = refCurrentTrack.seq.length * (60/refTempo) * 0.5;
+  document.getElementById('refCurrentTime').textContent = refFormatTime(refNoteIdx*(60/refTempo)*0.5);
+  document.getElementById('refProgress').style.width = (refNoteIdx/refCurrentTrack.seq.length*100)+'%';
+}
+
+function refSeek(event){
+  if(!refCurrentTrack) return;
+  const bar = event.currentTarget;
+  const pct = event.offsetX / bar.offsetWidth;
+  refNoteIdx = Math.floor(pct * refCurrentTrack.seq.length);
+  if(refPlaying){ refStopPlayback(); refStartPlayback(); }
+  document.getElementById('refProgress').style.width = (pct*100)+'%';
+  document.getElementById('refCurrentTime').textContent = refFormatTime(refNoteIdx*(60/refTempo)*0.5);
+}
+
+function buildRefTrackList(){
+  const container = document.getElementById('refTrackList');
+  const allTracks = [...REF_TRACKS];
+
+  allTracks.forEach(track => {
+    const tagColors = {concert:'var(--accent)',sym:'var(--green)',wind:'var(--accent2)'};
+    const tagLabels = {concert:'Concert Band',sym:'Symphonic Band',wind:'Wind Ensemble'};
+    const card = document.createElement('div');
+    card.className='ref-track-card';
+    card.id='rft-'+track.id;
+    card.style.cssText='background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.85rem;margin-bottom:.5rem;cursor:pointer;transition:all .18s;display:flex;align-items:center;gap:.85rem;';
+    card.innerHTML=`
+      <div style="width:36px;height:36px;border-radius:50%;background:${tagColors[track.tag]||'var(--accent)'};display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">🎹</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:.82rem;color:var(--text)">${track.label}</div>
+        <div style="font-size:.65rem;color:var(--text2);margin-top:.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${track.desc}</div>
+      </div>
+      <button style="background:var(--accent);border:none;border-radius:6px;color:#0a0f1e;font-size:.68rem;font-weight:600;padding:.35rem .75rem;cursor:pointer;flex-shrink:0;font-family:'Outfit',sans-serif">▶ Load</button>
+    `;
+    card.onclick=()=>{ refLoadTrack(track); };
+    container.appendChild(card);
+  });
+}
+
+function buildRefScaleList(){
+  const container = document.getElementById('refScaleList');
+  const grid = document.createElement('div');
+  grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.45rem;';
+
+  REF_SCALE_TRACKS.forEach(track => {
+    const card = document.createElement('div');
+    card.className='ref-track-card';
+    card.id='rft-'+track.id;
+    card.style.cssText='background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.75rem .6rem;text-align:center;cursor:pointer;transition:all .18s;';
+    card.innerHTML=`
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;color:var(--accent)">${track.key}</div>
+      <div style="font-size:.5rem;color:var(--text2);line-height:1.5;margin-top:.15rem">${track.desc}</div>
+      <div style="font-size:.56rem;color:var(--accent);margin-top:.3rem">▶ load & play</div>
+    `;
+    card.onclick=()=>{ refLoadTrack(track); setTimeout(()=>refStartPlayback(), 100); };
+    grid.appendChild(card);
+  });
+  container.appendChild(grid);
+}
+
+function buildYouTubeLinks(){
+  const container = document.getElementById('refYouTubeList');
+  YT_LINKS.forEach(section => {
+    const catDiv = document.createElement('div');
+    catDiv.style.cssText='margin-bottom:1rem;';
+    catDiv.innerHTML=`<div style="font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--text2);margin-bottom:.45rem;padding-left:.1rem">${section.cat}</div>`;
+    section.links.forEach(link => {
+      const a = document.createElement('a');
+      a.href = link.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.cssText='display:flex;align-items:center;gap:.75rem;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:.75rem .9rem;margin-bottom:.4rem;text-decoration:none;transition:all .18s;';
+      a.innerHTML=`
+        <div style="width:32px;height:32px;border-radius:6px;background:#ff0000;display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">▶</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.78rem;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${link.title}</div>
+          <div style="font-size:.62rem;color:var(--text2);margin-top:.1rem">${link.desc}</div>
+        </div>
+        <div style="font-size:.6rem;color:var(--accent);flex-shrink:0">Open ↗</div>
+      `;
+      a.addEventListener('mouseover',()=>a.style.borderColor='rgba(255,0,0,.35)');
+      a.addEventListener('mouseout',()=>a.style.borderColor='var(--border)');
+      catDiv.appendChild(a);
+    });
+    container.appendChild(catDiv);
+  });
+}
+
+// ref-active style
+const refStyle = document.createElement('style');
+refStyle.textContent=`.ref-track-card.ref-active{border-color:var(--accent)!important;background:rgba(245,166,35,.07)!important;}`;
+document.head.appendChild(refStyle);
+
+// ── LISTENING LOG ──
+function logListen(){
+  const track = refCurrentTrack ? refCurrentTrack.label : 'Reference Recording';
+  const now = new Date();
+  listenLog.unshift({
+    track,
+    date: now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})
+  });
+  renderListenLog();
+  saveAll();
+  showToast('Listen logged! 🎧 Keep it up!');
+}
+
+function renderListenLog(){
+  const c = document.getElementById('refListenLog');
+  const empty = document.getElementById('refLogEmpty');
+  if(!listenLog.length){
+    if(empty) empty.style.display='block';
+    const items = c.querySelectorAll('.listen-log-item');
+    items.forEach(i=>i.remove());
+    return;
+  }
+  if(empty) empty.style.display='none';
+  // Remove old items
+  c.querySelectorAll('.listen-log-item').forEach(i=>i.remove());
+  listenLog.slice(0,20).forEach(entry=>{
+    const div = document.createElement('div');
+    div.className='listen-log-item log-entry';
+    div.innerHTML=`<div class="log-icon">🎧</div><div><div class="log-title">${entry.track}</div><div class="log-date">${entry.date}</div></div>`;
+    c.insertBefore(div, c.firstChild.nextSibling || null);
+  });
+}
+
+// ═══════ TOAST ═══════
+function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(type?' '+type:'');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+
+// ═══════ SERVICE WORKER ═══════
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').then(()=>console.log('SW registered')).catch(e=>console.log('SW error:',e)));}
+
+// ═══════ INIT ═══════
+buildMarimba();buildRow(CONCERT,'concertRow');buildRow(SYM,'symRow',[7,15,23]);buildRow(WIND,'windRow',[0,8,16,17]);
+buildScales();buildRudiments();buildSnarePatterns();buildLessons();buildMilestones();
+buildMetroBeatRow();buildGlossary();buildChecklist();buildWeekGrid();updateStreak();
+setRoutine('full');renderPhases();buildRefTrackList();buildRefScaleList();buildYouTubeLinks();renderListenLog();
+// Unlock audio on ANY user interaction
+['touchstart','touchend','mousedown','keydown'].forEach(evt=>{
+  document.addEventListener(evt, ()=>{ unlockAudio(); }, {once:false, passive:true});
+});
+
+// Auto-connect PIN on startup, show PIN screen if no saved PIN
+(async () => {
+  const connected = await tryAutoConnect();
+  if (!connected) {
+    // Show PIN screen — no auto-skip
+    document.getElementById('pinScreen').style.display = 'flex';
+    document.getElementById('appShell').style.display = 'none';
+  }
+})();
+</script>
+</body>
+</html>
